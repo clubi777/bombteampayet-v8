@@ -113,6 +113,7 @@ const css = `
   .sidebar-logout{padding:14px 16px;border-top:1px solid var(--border);}
   .logout-btn{width:100%;background:transparent;border:1px solid var(--border);border-radius:var(--radius);padding:8px;color:var(--text2);font-family:var(--font-body);font-size:.8rem;cursor:pointer;transition:all .2s;display:flex;align-items:center;justify-content:center;gap:6px;}
   .logout-btn:hover{background:rgba(204,0,0,.1);border-color:var(--red);color:var(--red);}
+  .mobile-only{display:none!important;}
   .main{flex:1;overflow-y:auto;background:var(--bg);}
   .page-header{padding:28px 28px 0;border-bottom:1px solid var(--border);}
   .page-title{font-family:var(--font-display);font-size:2rem;font-weight:900;text-transform:uppercase;letter-spacing:.04em;color:var(--text);line-height:1;}
@@ -257,6 +258,7 @@ const css = `
     .nav-icon{font-size:1.1rem;width:auto;}
     .nav-badge{position:relative;right:auto;top:auto;margin-left:2px;}
     .sidebar-logout{display:none;}
+    .mobile-only{display:flex!important;}
     .main{flex:1;overflow-y:auto;min-height:0;}
     .page-header{padding:14px 14px 0;}
     .page-title{font-size:1.4rem;}
@@ -485,7 +487,7 @@ function Sidebar({user,activeView,onNav,onLogout,unreadCount,pendingRequests}){
           <Avatar user={user}/>
           <div><div className="sidebar-username">{user.name}</div><div className="sidebar-role" style={{color:ROLE_COLOR[user.role]}}>{ROLE_LABEL[user.role]}</div></div>
         </div>
-        <button className="logout-btn" style={{width:"auto",padding:"6px 12px",fontSize:".72rem"}} onClick={onLogout}>⏻ Déco</button>
+        <button className="logout-btn mobile-only" style={{width:"auto",padding:"6px 12px",fontSize:".72rem"}} onClick={onLogout}>Deconnexion</button>
       </div>
       <div className="sidebar-nav">
         <div className="nav-section">Navigation</div>
@@ -498,7 +500,7 @@ function Sidebar({user,activeView,onNav,onLogout,unreadCount,pendingRequests}){
           </div>
         ))}
       </div>
-      <div className="sidebar-logout"><button className="logout-btn" onClick={onLogout}>⏻ Deconnexion</button></div>
+      <div className="sidebar-logout"><button className="logout-btn" onClick={onLogout}>Deconnexion</button></div>
     </div>
   );
 }
@@ -1770,11 +1772,46 @@ function CompetitorAssignments({user,show}){
   return(<div><div className="page-header"><div className="page-title">Mes exercices</div><div className="page-subtitle">Assignes par le coach</div></div><div className="content">{loading?<div className="empty"><div className="empty-text">Chargement...</div></div>:assignments.length===0?<div className="empty"><div className="empty-icon">📌</div><div className="empty-text">Aucun exercice</div></div>:assignments.map(a=><div className="card" key={a.id} style={{borderLeft:`3px solid ${a.done?"#39d353":"var(--red)"}`}}><div className="card-header"><div><div className="card-title">{a.title}</div><div className="card-meta">{a.deadline?`Deadline : ${formatDate(a.deadline)}`:""}</div></div><span className={`badge ${a.done?"badge-green":"badge-red"}`}>{a.done?"Fait":"A faire"}</span></div><div className="text-sm text-muted" style={{marginBottom:10}}>{a.description}</div><label className="checkbox-row"><input type="checkbox" checked={a.done} onChange={()=>toggle(a)}/>Marquer comme realise</label></div>)}</div></div>);
 }
 
-function ClubSessions({userRole}){
-  const [sessions,setSessions]=useState([]);const [loading,setLoading]=useState(true);const [filter,setFilter]=useState("Tous");
-  useEffect(()=>{(async()=>{let q=supabase.from("sessions").select("*").order("date",{ascending:false});if(userRole==="leisure")q=q.neq("group_name","Competiteurs");const{data}=await q;const f=userRole==="leisure"?(data||[]).filter(s=>!isMardi(s.date)):(data||[]);setSessions(f);setLoading(false);})();},[userRole]);
-  const filtered=sessions.filter(s=>filter==="Tous"||s.type===filter);
-  return(<div><div className="page-header"><div className="page-title">Seances du club</div><div className="page-subtitle">{userRole==="leisure"?"Vos cours":"Historique complet"}</div></div><div className="content"><div className="filter-bar">{["Tous","Technique","Physique","Sparring","Mixte"].map(f=><button key={f} className={`filter-btn ${filter===f?"active":""}`} onClick={()=>setFilter(f)}>{f}</button>)}</div>{loading?<div className="empty"><div className="empty-text">Chargement...</div></div>:filtered.map(s=><SessionCard key={s.id} s={s}/>)}</div></div>);
+function ClubSessions({userRole,show}){
+  const [sessions,setSessions]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [filter,setFilter]=useState("Tous");
+  const [confirm,setConfirm]=useState(null);
+  const isAdmin=userRole==="admin";
+
+  const load=async()=>{
+    setLoading(true);
+    let q=supabase.from("sessions").select("*").order("date",{ascending:false});
+    if(userRole==="leisure")q=q.neq("group_name","Competiteurs");
+    const{data}=await q;
+    const f=userRole==="leisure"?(data||[]).filter(s=>!isMardi(s.date)):(data||[]);
+    setSessions(f);setLoading(false);
+  };
+  useEffect(()=>{load();},[userRole]);
+
+  const deleteSession=async()=>{
+    await supabase.from("sessions").delete().eq("id",confirm.id);
+    show&&show("Seance supprimee ✓");setConfirm(null);load();
+  };
+
+  const filtered=sessions.filter(s=>filter==="Tous"||(Array.isArray(s.types)?s.types.includes(filter):s.type===filter));
+  return(
+    <div>
+      <div className="page-header"><div className="page-title">Seances du club</div><div className="page-subtitle">{userRole==="leisure"?"Vos cours":"Historique complet"}</div></div>
+      <div className="content">
+        <div className="filter-bar">{["Tous","Technique","Physique","Sparring","Mixte"].map(f=><button key={f} className={`filter-btn ${filter===f?"active":""}`} onClick={()=>setFilter(f)}>{f}</button>)}</div>
+        {loading?<div className="empty"><div className="empty-text">Chargement...</div></div>:filtered.map(s=>(
+          <div key={s.id}>
+            <SessionCard s={s} canEdit={false}/>
+            {isAdmin&&<div style={{marginTop:-10,marginBottom:14,textAlign:"right"}}>
+              <button className="btn btn-sm btn-danger" onClick={()=>setConfirm(s)}>Supprimer cette seance</button>
+            </div>}
+          </div>
+        ))}
+      </div>
+      {confirm&&<ConfirmModal title="Supprimer la seance" text={`Supprimer "${confirm.focus}" du ${formatDate(confirm.date)} ? Irreversible.`} onConfirm={deleteSession} onCancel={()=>setConfirm(null)}/>}
+    </div>
+  );
 }
 
 function WeeklyProgram({isCoach,userRole}){
@@ -1821,7 +1858,7 @@ export default function App(){
     if(r==="admin"){
       if(view==="dashboard")   return <AdminDashboard/>;
       if(view==="users")       return <AdminUsers show={show}/>;
-      if(view==="sessions")    return <ClubSessions userRole="admin"/>;
+      if(view==="sessions")    return <ClubSessions userRole="admin" show={show}/>;
       if(view==="attendance")  return <AttendancePage user={currentUser} show={show}/>;
       if(view==="competitions")return <CompetitionsPage user={currentUser} show={show}/>;
       if(view==="requests")    return <RequestsPage user={currentUser} show={show}/>;
