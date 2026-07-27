@@ -243,7 +243,29 @@ const css = `
   .comp-month{font-size:.75rem;color:var(--text2);text-transform:uppercase;letter-spacing:.1em;}
   .member-avatar{width:44px;height:44px;border-radius:50%;background:var(--red);display:flex;align-items:center;justify-content:center;font-family:var(--font-display);font-weight:900;font-size:1.2rem;color:#fff;flex-shrink:0;overflow:hidden;}
   .member-avatar img{width:100%;height:100%;object-fit:cover;}
-  @media(max-width:768px){
+  .chatbot-btn{position:fixed;bottom:20px;right:20px;width:52px;height:52px;border-radius:50%;background:var(--red);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:1.4rem;box-shadow:0 4px 16px rgba(204,0,0,.5);z-index:150;transition:transform .2s,box-shadow .2s;}
+  .chatbot-btn:hover{transform:scale(1.1);box-shadow:0 6px 20px rgba(204,0,0,.6);}
+  .chatbot-bubble{position:absolute;top:-8px;right:-4px;background:#ff6400;color:#fff;border-radius:10px;padding:1px 6px;font-size:.65rem;font-weight:700;}
+  .chatbot-window{position:fixed;bottom:84px;right:16px;width:320px;max-height:480px;background:var(--bg2);border:1px solid var(--border);border-radius:16px;z-index:150;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,.6);animation:slideUp .2s ease;}
+  @media(max-width:768px){.chatbot-window{width:calc(100vw - 24px);right:12px;bottom:80px;max-height:60vh;}}
+  .chatbot-header{padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;background:linear-gradient(135deg,rgba(204,0,0,.15),var(--bg2));border-radius:16px 16px 0 0;}
+  .chatbot-title{font-family:var(--font-display);font-size:1rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--red);}
+  .chatbot-close{background:none;border:none;color:var(--text3);cursor:pointer;font-size:1.2rem;line-height:1;}
+  .chatbot-close:hover{color:var(--text);}
+  .chatbot-messages{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:8px;}
+  .chatbot-msg{max-width:85%;padding:9px 12px;border-radius:10px;font-size:.85rem;line-height:1.5;}
+  .chatbot-msg.bot{background:var(--bg3);border:1px solid var(--border);align-self:flex-start;border-bottom-left-radius:3px;}
+  .chatbot-msg.user{background:rgba(204,0,0,.2);border:1px solid rgba(204,0,0,.3);align-self:flex-end;border-bottom-right-radius:3px;}
+  .chatbot-typing{display:flex;gap:4px;padding:4px 0;}
+  .chatbot-typing span{width:6px;height:6px;border-radius:50%;background:var(--text3);animation:typing 1s infinite;}
+  .chatbot-typing span:nth-child(2){animation-delay:.2s;}
+  .chatbot-typing span:nth-child(3){animation-delay:.4s;}
+  @keyframes typing{0%,60%,100%{transform:translateY(0)}30%{transform:translateY(-6px)}}
+  .chatbot-input-bar{padding:10px 12px;border-top:1px solid var(--border);display:flex;gap:8px;}
+  .chatbot-input{flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:8px 11px;color:var(--text);font-family:var(--font-body);font-size:.85rem;outline:none;}
+  .chatbot-input:focus{border-color:var(--red);}
+  .chatbot-send{background:var(--red);border:none;border-radius:var(--radius);padding:8px 12px;color:#fff;cursor:pointer;font-size:.85rem;}
+  .chatbot-send:disabled{opacity:.5;cursor:not-allowed;}
     .app-wrap{flex-direction:column;}
     .sidebar{width:100%;min-width:unset;height:auto;flex-direction:column;border-right:none;border-bottom:1px solid var(--border);overflow:visible;flex-shrink:0;}
     .sidebar-logo{display:none;}
@@ -982,7 +1004,7 @@ function CoachMembers(){
   useEffect(()=>{
     (async()=>{
       const[{data:m},{data:l}]=await Promise.all([
-        supabase.from("profiles").select("*").in("role",["competitor","leisure","child"]).order("name"),
+        supabase.from("profiles").select("*").in("role",["competitor","leisure","child"]).order("name").limit(500),
         supabase.from("comp_logs").select("*").order("date",{ascending:false})
       ]);
       setMembers(m||[]);setLogs(l||[]);setLoading(false);
@@ -1045,7 +1067,7 @@ function CoachMembers(){
       <div className="page-header"><div className="page-title">Membres</div><div className="page-subtitle">Profils et activite des adherents</div></div>
       <div className="content">
         <div className="tabs">
-          <div className={`tab ${tab==="competitor"?"active":""}`} onClick={()=>{setTab("competitor");setSelected(null);}}>🥊 Competiteurs ({competitors.length})</div>
+          <div className={`tab ${tab==="competitor"?"active":""}`} onClick={()=>{setTab("competitor");setSelected(null);}}>🥊 Compet. ({competitors.length})</div>
           <div className={`tab ${tab==="leisure"?"active":""}`} onClick={()=>{setTab("leisure");setSelected(null);}}>🏃 Loisirs ({leisureAll.length})</div>
           <div className={`tab ${tab==="child"?"active":""}`} onClick={()=>{setTab("child");setSelected(null);}}>🧒 Enfants ({childrenAll.length})</div>
         </div>
@@ -1617,13 +1639,16 @@ function ClubPage({user,show}){
   const [infoForm,setInfoForm]=useState({name:"",address:"",phone:"",email:"",schedule:"",prices:"",description:""});
   const [newsForm,setNewsForm]=useState({title:"",content:"",pinned:false});
   const load=async()=>{
-    const[{data:i},{data:n},{data:nl}]=await Promise.all([
+    const[{data:i},{data:n}]=await Promise.all([
       supabase.from("club_info").select("*").eq("id",1).single(),
       supabase.from("club_news").select("*").order("pinned",{ascending:false}).order("created_at",{ascending:false}),
-      supabase.from("newsletters").select("*").eq("id",1).single()
     ]);
     if(i){setInfo(i);setInfoForm(i);}setNews(n||[]);
-    if(nl)setNewsletter(nl);
+    // Newsletter — optionnelle, ne bloque pas si table absente
+    try{
+      const{data:nl}=await supabase.from("newsletters").select("*").eq("id",1).single();
+      if(nl)setNewsletter(nl);
+    }catch(e){}
   };
   useEffect(()=>{load();},[]);
   const saveInfo=async()=>{
@@ -1825,6 +1850,111 @@ function LeisureDashboard({user}){
 }
 
 // ─── ROOT APP ─────────────────────────────────────────────────────────────────
+// ─── CHATBOT ──────────────────────────────────────────────────────────────────
+const CLUB_CONTEXT = `Tu es l'assistant virtuel du club de kickboxing Bomb Team Payet, situé à Saint-Maur-des-Fossés (Île-de-France).
+Tu aides les membres loisirs et les enfants à utiliser l'application et à comprendre la vie du club.
+Réponds toujours en français, de façon simple, chaleureuse et concise (2-3 phrases max sauf si on te demande plus de détails).
+
+PROGRAMME DES COURS :
+- Mercredi 20h00-22h00 (Mixte — tous niveaux)
+- Vendredi 20h00-22h00 (Mixte — tous niveaux)  
+- Samedi 10h30-12h30 (Mixte — tous niveaux)
+- Mardi 20h00-22h00 : réservé aux compétiteurs uniquement
+
+FONCTIONNEMENT DE L'APP :
+- "Programme" : voir les cours de la semaine
+- "Historique cours" : voir le contenu des séances passées
+- "Mes présences" : indiquer que tu étais présent à un cours
+- "Compétitions" : voir le calendrier et s'inscrire
+- "Demander une séance" : envoyer une demande spécifique à un coach
+- "Messagerie" : envoyer un message à un coach ou à l'admin
+- "Club & Actu" : infos du club, actualités et newsletter
+- "Mon profil" : modifier tes infos et ta photo
+
+RÈGLES IMPORTANTES :
+- Si tu ne connais pas une information précise (tarifs exacts, adresse exacte...), dis-le honnêtement et conseille de contacter l'admin via la messagerie.
+- Tu n'as pas accès aux données personnelles des membres.
+- Pour tout problème technique avec l'app, orienter vers l'admin via la messagerie.`;
+
+function Chatbot({user}){
+  const [open,setOpen]=useState(false);
+  const [messages,setMessages]=useState([
+    {role:"assistant",content:`Bonjour ${user.name?.split(" ")[0]} ! 👋 Je suis l'assistant Bomb Team Payet. Comment puis-je t'aider ?`}
+  ]);
+  const [input,setInput]=useState("");
+  const [loading,setLoading]=useState(false);
+  const bottomRef=useRef(null);
+
+  useEffect(()=>{bottomRef.current?.scrollIntoView({behavior:"smooth"});},[messages,loading]);
+
+  const send=async()=>{
+    if(!input.trim()||loading)return;
+    const userMsg={role:"user",content:input.trim()};
+    setMessages(prev=>[...prev,userMsg]);
+    setInput("");
+    setLoading(true);
+    try{
+      const history=messages.slice(-8).map(m=>({role:m.role,content:m.content}));
+      const res=await fetch("https://api.anthropic.com/v1/messages",{
+        method:"POST",
+        headers:{"Content-Type":"application/json","anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
+        body:JSON.stringify({
+          model:"claude-sonnet-4-6",
+          max_tokens:300,
+          system:CLUB_CONTEXT,
+          messages:[...history,userMsg]
+        })
+      });
+      const data=await res.json();
+      const reply=data.content?.[0]?.text||"Désolé, je n'ai pas pu répondre. Essaie à nouveau !";
+      setMessages(prev=>[...prev,{role:"assistant",content:reply}]);
+    }catch(e){
+      setMessages(prev=>[...prev,{role:"assistant",content:"Oups, une erreur est survenue. Réessaie dans un moment !"}]);
+    }
+    setLoading(false);
+  };
+
+  return(
+    <>
+      {open&&(
+        <div className="chatbot-window">
+          <div className="chatbot-header">
+            <div>
+              <div className="chatbot-title">🥊 Assistant Bomb Team</div>
+              <div style={{fontSize:".68rem",color:"var(--text2)",marginTop:2}}>Pose-moi tes questions sur le club</div>
+            </div>
+            <button className="chatbot-close" onClick={()=>setOpen(false)}>×</button>
+          </div>
+          <div className="chatbot-messages">
+            {messages.map((m,i)=>(
+              <div key={i} className={`chatbot-msg ${m.role==="assistant"?"bot":"user"}`}>{m.content}</div>
+            ))}
+            {loading&&(
+              <div className="chatbot-msg bot">
+                <div className="chatbot-typing"><span/><span/><span/></div>
+              </div>
+            )}
+            <div ref={bottomRef}/>
+          </div>
+          <div className="chatbot-input-bar">
+            <input
+              className="chatbot-input"
+              value={input}
+              onChange={e=>setInput(e.target.value)}
+              onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&send()}
+              placeholder="Écris ta question..."
+            />
+            <button className="chatbot-send" onClick={send} disabled={loading||!input.trim()}>➤</button>
+          </div>
+        </div>
+      )}
+      <button className="chatbot-btn" onClick={()=>setOpen(o=>!o)} title="Assistant Bomb Team">
+        {open?"×":"💬"}
+      </button>
+    </>
+  );
+}
+
 export default function App(){
   const [currentUser,setCurrentUser]=useState(null);
   const [view,setView]=useState("dashboard");
@@ -1836,19 +1966,20 @@ export default function App(){
 
   const loadAnnounces=async()=>{const{data}=await supabase.from("announcements").select("*").eq("active",true).order("created_at",{ascending:false});setAnnounces(data||[]);};
   const loadPending=async(u)=>{if(u?.role==="coach"||u?.role==="admin"){const{count}=await supabase.from("session_requests").select("*",{count:"exact",head:true}).eq("coach_id",u.id).eq("status","pending");setPendingRequests(count||0);}};
+  const loadUnread=async(u)=>{if(!u)return;const{data}=await supabase.from("messages").select("from_id").eq("to_id",u.id).eq("read",false);const total=(data||[]).length;setUnreadCount(total);};
 
   useEffect(()=>{
     loadAnnounces();
     (async()=>{
       const{data:{session}}=await supabase.auth.getSession();
-      if(session){const{data:p}=await supabase.from("profiles").select("*").eq("id",session.user.id).single();if(p){const u={...p,email:session.user.email};setCurrentUser(u);loadPending(u);}}
+      if(session){const{data:p}=await supabase.from("profiles").select("*").eq("id",session.user.id).single();if(p){const u={...p,email:session.user.email};setCurrentUser(u);loadPending(u);loadUnread(u);}}
       setAppLoading(false);
     })();
     const{data:{subscription}}=supabase.auth.onAuthStateChange(event=>{if(event==="SIGNED_OUT"){setCurrentUser(null);setView("dashboard");}});
     return()=>subscription.unsubscribe();
   },[]);
 
-  const handleLogin=u=>{setCurrentUser(u);setView("dashboard");loadPending(u);};
+  const handleLogin=u=>{setCurrentUser(u);setView("dashboard");loadPending(u);loadUnread(u);};
   const handleLogout=async()=>{await supabase.auth.signOut();setCurrentUser(null);setView("dashboard");};
   const handleAvatarUpdate=url=>setCurrentUser(u=>({...u,avatar_url:url}));
 
@@ -1928,6 +2059,7 @@ export default function App(){
           {renderView()}
         </div>
       </div>
+      {(currentUser.role==="leisure"||currentUser.role==="child")&&<Chatbot user={currentUser}/>}
     </>
   );
 }
