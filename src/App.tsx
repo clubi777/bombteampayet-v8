@@ -1646,7 +1646,7 @@ function ClubPage({user,show}){
     if(i){setInfo(i);setInfoForm(i);}setNews(n||[]);
     // Newsletter — optionnelle, ne bloque pas si table absente
     try{
-      const{data:nl}=await supabase.from("newsletters").select("*").eq("id",1).single();
+      const{data:nl}=await supabase.from("newsletters").select("*").order("uploaded_at",{ascending:false}).limit(1).single();
       if(nl)setNewsletter(nl);
     }catch(e){}
   };
@@ -1674,11 +1674,14 @@ function ClubPage({user,show}){
     const{error:upErr}=await supabase.storage.from('newsletters').upload(path,file,{upsert:true});
     if(upErr){show(upErr.message,"error");setUploadingNL(false);return;}
     const{data:urlData}=supabase.storage.from('newsletters').getPublicUrl(path);
-    const{data:existing}=await supabase.from("newsletters").select("id,file_path").eq("id",1).single();
+    const{data:existing}=await supabase.from("newsletters").select("id,file_path").order("uploaded_at",{ascending:false}).limit(1).single().catch(()=>({data:null}));
     if(existing?.file_path){try{await supabase.storage.from('newsletters').remove([existing.file_path]);}catch(e){}}
-    const payload={id:1,title:file.name.replace(/\.pdf$/i,""),file_path:path,file_url:urlData.publicUrl,uploaded_by:user.name,uploaded_at:new Date().toISOString()};
-    if(existing)await supabase.from("newsletters").update(payload).eq("id",1);
-    else await supabase.from("newsletters").insert(payload);
+    const payload={title:file.name.replace(/\.pdf$/i,""),file_path:path,file_url:urlData.publicUrl,uploaded_by:user.name,uploaded_at:new Date().toISOString()};
+    if(existing?.id){
+      await supabase.from("newsletters").update(payload).eq("id",existing.id);
+    } else {
+      await supabase.from("newsletters").insert(payload);
+    }
     show("Newsletter publiee ✓");setUploadingNL(false);load();
   };
   const deleteNewsletter=async()=>{
