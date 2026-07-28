@@ -577,7 +577,7 @@ function ProfileView({user,show,onAvatarUpdate}){
 
 // ─── ADMIN ────────────────────────────────────────────────────────────────────
 function AdminDashboard(){
-  const [stats,setStats]=useState({members:0,coaches:0,competitors:0,leisure:0,sessions:0,requests:0});
+  const [stats,setStats]=useState({members:0,coaches:0,competitors:0,leisure:0,children:0,sessions:0,requests:0});
   useEffect(()=>{
     (async()=>{
       const[{data:p},{count:s},{count:r}]=await Promise.all([
@@ -585,7 +585,7 @@ function AdminDashboard(){
         supabase.from("sessions").select("*",{count:"exact",head:true}),
         supabase.from("session_requests").select("*",{count:"exact",head:true}).eq("status","pending")
       ]);
-      if(p)setStats({members:p.length,coaches:p.filter(x=>x.role==="coach").length,competitors:p.filter(x=>x.role==="competitor").length,leisure:p.filter(x=>x.role==="leisure").length,sessions:s||0,requests:r||0});
+      if(p)setStats({members:p.length,coaches:p.filter(x=>x.role==="coach").length,competitors:p.filter(x=>x.role==="competitor").length,leisure:p.filter(x=>x.role==="leisure").length,children:p.filter(x=>x.role==="child").length,sessions:s||0,requests:r||0});
     })();
   },[]);
   return(
@@ -593,10 +593,11 @@ function AdminDashboard(){
       <div className="page-header"><div className="page-title">Tableau de bord</div><div className="page-subtitle">Vue d ensemble</div></div>
       <div className="content">
         <div className="stats-grid">
-          <div className="stat-card"><div className="stat-value">{stats.members}</div><div className="stat-label">Membres</div></div>
+          <div className="stat-card"><div className="stat-value">{stats.members}</div><div className="stat-label">Membres total</div></div>
           <div className="stat-card"><div className="stat-value">{stats.coaches}</div><div className="stat-label">Coachs</div></div>
           <div className="stat-card"><div className="stat-value">{stats.competitors}</div><div className="stat-label">Competiteurs</div></div>
           <div className="stat-card"><div className="stat-value">{stats.leisure}</div><div className="stat-label">Loisirs</div></div>
+          <div className="stat-card"><div className="stat-value">{stats.children}</div><div className="stat-label">Enfants</div></div>
           <div className="stat-card"><div className="stat-value">{stats.sessions}</div><div className="stat-label">Seances</div></div>
           <div className="stat-card"><div className="stat-value" style={{color:stats.requests>0?"#ff6400":"var(--red)"}}>{stats.requests}</div><div className="stat-label">Demandes</div></div>
         </div>
@@ -1185,43 +1186,42 @@ function MessagesPage({user,show,onUnreadChange}){
   const [broadcast,setBroadcast]=useState("");
   const [sendingBC,setSendingBC]=useState(false);
   const [searchNew,setSearchNew]=useState("");
-  const [showSearch,setShowSearch]=useState(false);
+  const [showNewConv,setShowNewConv]=useState(false);
   const messagesEndRef=useRef(null);
   const isStaff=user.role==="admin"||user.role==="coach";
 
-  const saveArchived=(arr)=>{
-    setArchived(arr);
-    try{localStorage.setItem(`msg_archived_${user.id}`,JSON.stringify(arr));}catch(e){}
-  };
-  const archiveConv=(id)=>saveArchived([...archived,id]);
-  const unarchiveConv=(id)=>saveArchived(archived.filter(x=>x!==id));
+  const saveArchived=arr=>{setArchived(arr);try{localStorage.setItem(`msg_archived_${user.id}`,JSON.stringify(arr));}catch(e){}};
+  const archiveConv=id=>saveArchived([...archived,id]);
+  const unarchiveConv=id=>saveArchived(archived.filter(x=>x!==id));
 
   const load=async()=>{
     let q=supabase.from("profiles").select("id,name,role,avatar_url").neq("id",user.id);
-    if(!isStaff) q=q.in("role",["coach","admin"]);
-    const{data:profiles}=await q.order("name");
+    if(!isStaff)q=q.in("role",["coach","admin"]);
+    const{data:profiles}=await q.order("name").limit(500);
     setAllProfiles(profiles||[]);
 
     const{data:unread}=await supabase.from("messages").select("from_id").eq("to_id",user.id).eq("read",false);
     const unreadMap={};
     (unread||[]).forEach(m=>{unreadMap[m.from_id]=(unreadMap[m.from_id]||0)+1;});
 
-    const{data:sentMsgs}=await supabase.from("messages").select("to_id,from_id,content,created_at").or(`from_id.eq.${user.id},to_id.eq.${user.id}`).order("created_at",{ascending:false});
+    const{data:sentMsgs}=await supabase.from("messages").select("to_id,from_id,content,created_at")
+      .or(`from_id.eq.${user.id},to_id.eq.${user.id}`)
+      .order("created_at",{ascending:false})
+      .limit(200);
 
     const convMap={};
     (sentMsgs||[]).forEach(m=>{
       const otherId=m.from_id===user.id?m.to_id:m.from_id;
-      if(!convMap[otherId]) convMap[otherId]={lastMsg:m.content,lastDate:m.created_at};
+      if(!convMap[otherId])convMap[otherId]={lastMsg:m.content,lastDate:m.created_at};
     });
+
+    const toUnarchive=archived.filter(id=>unreadMap[id]>0);
+    if(toUnarchive.length>0)saveArchived(archived.filter(id=>!toUnarchive.includes(id)));
 
     const activeConvs=(profiles||[])
       .filter(p=>convMap[p.id])
       .map(p=>({...p,unread:unreadMap[p.id]||0,lastMsg:convMap[p.id]?.lastMsg||"",lastDate:convMap[p.id]?.lastDate||""}))
       .sort((a,b)=>new Date(b.lastDate)-new Date(a.lastDate));
-
-    // Si message non lu dans une conv archivée → la désarchiver auto
-    const toUnarchive=archived.filter(id=>unreadMap[id]>0);
-    if(toUnarchive.length>0) saveArchived(archived.filter(id=>!toUnarchive.includes(id)));
 
     setConvs(activeConvs);
     const total=Object.values(unreadMap).reduce((a,b)=>a+b,0);
@@ -1229,7 +1229,9 @@ function MessagesPage({user,show,onUnreadChange}){
   };
 
   const loadMessages=async(contact)=>{
-    setSelected(contact);setShowSearch(false);setSearchNew("");
+    setSelected(contact);
+    setShowNewConv(false);
+    setSearchNew("");
     const{data}=await supabase.from("messages").select("*")
       .or(`and(from_id.eq.${user.id},to_id.eq.${contact.id}),and(from_id.eq.${contact.id},to_id.eq.${user.id})`)
       .order("created_at",{ascending:true});
@@ -1246,7 +1248,7 @@ function MessagesPage({user,show,onUnreadChange}){
     if(!newMsg.trim()||!selected)return;
     setSending(true);
     const{data}=await supabase.from("messages").insert([{from_id:user.id,from_name:user.name,to_id:selected.id,to_name:selected.name,content:newMsg.trim(),read:false}]).select().single();
-    if(data){setMessages([...messages,data]);load();}
+    if(data){setMessages(prev=>[...prev,data]);load();}
     setNewMsg("");setSending(false);
   };
 
@@ -1254,42 +1256,20 @@ function MessagesPage({user,show,onUnreadChange}){
     if(!broadcast.trim())return;
     setSendingBC(true);
     const targets=allProfiles.filter(c=>c.role!=="admin");
-    await Promise.all(targets.map(c=>supabase.from("messages").insert([{from_id:user.id,from_name:user.name,to_id:c.id,to_name:c.name,content:broadcast.trim(),read:false}])));
+    for(const c of targets){
+      await supabase.from("messages").insert([{from_id:user.id,from_name:user.name,to_id:c.id,to_name:c.name,content:broadcast.trim(),read:false}]);
+    }
     show(`Message envoye a ${targets.length} membres ✓`);
     setBroadcast("");setSendingBC(false);load();
   };
 
-  const searchResults=searchNew.trim().length>=2
-    ? allProfiles.filter(p=>p.name?.toLowerCase().includes(searchNew.toLowerCase())&&!convs.find(c=>c.id===p.id))
-    : [];
+  // Recherche filtrée — parmi tous les profils disponibles
+  const filteredSearch=searchNew.trim().length>=1
+    ? allProfiles.filter(p=>p.name?.toLowerCase().includes(searchNew.toLowerCase()))
+    : allProfiles;
 
-  const visibleConvs=showArchived ? convs.filter(c=>archived.includes(c.id)) : convs.filter(c=>!archived.includes(c.id));
+  const visibleConvs=showArchived?convs.filter(c=>archived.includes(c.id)):convs.filter(c=>!archived.includes(c.id));
   const archivedCount=convs.filter(c=>archived.includes(c.id)).length;
-
-  const ConvItem=({c})=>(
-    <div className={`conv-item ${selected?.id===c.id?"active":""}`}>
-      <div className="flex items-center justify-between" onClick={()=>loadMessages(c)} style={{cursor:"pointer"}}>
-        <div className="flex items-center gap-2">
-          <div className="avatar" style={{width:26,height:26,fontSize:".7rem",flexShrink:0}}>
-            {c.avatar_url?<img src={c.avatar_url} alt={c.name}/>:<span>{c.name[0]}</span>}
-          </div>
-          <div className="conv-name">{c.name}</div>
-        </div>
-        <div className="flex items-center gap-2">
-          {c.unread>0&&<span className="conv-unread">{c.unread}</span>}
-          <span
-            title={archived.includes(c.id)?"Rouvrir":"Archiver"}
-            style={{fontSize:".8rem",color:"var(--text3)",cursor:"pointer",padding:"2px 4px",borderRadius:4}}
-            onClick={e=>{e.stopPropagation();archived.includes(c.id)?unarchiveConv(c.id):archiveConv(c.id);if(selected?.id===c.id)setSelected(null);}}
-          >{archived.includes(c.id)?"↩":"×"}</span>
-        </div>
-      </div>
-      <div style={{paddingLeft:34}}>
-        <div style={{fontSize:".68rem",color:ROLE_COLOR[c.role]}}>{ROLE_LABEL[c.role]}</div>
-        {c.lastMsg&&<div className="conv-preview" style={{color:"var(--text3)"}}>{c.lastMsg}</div>}
-      </div>
-    </div>
-  );
 
   return(
     <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
@@ -1297,7 +1277,7 @@ function MessagesPage({user,show,onUnreadChange}){
       {isStaff&&(
         <div style={{padding:"16px 28px 0"}}>
           <div className="card" style={{marginBottom:0}}>
-            <div className="card-title" style={{marginBottom:10}}>📢 Message a tous les membres</div>
+            <div className="card-title" style={{marginBottom:8}}>📢 Message a tous les membres</div>
             <div className="flex gap-2">
               <input className="search-input" style={{flex:1}} value={broadcast} onChange={e=>setBroadcast(e.target.value)} placeholder="Ecrire un message pour tous..." onKeyDown={e=>e.key==="Enter"&&sendBroadcast()}/>
               <button className="btn btn-primary" onClick={sendBroadcast} disabled={sendingBC||!broadcast.trim()}>{sendingBC?"...":"Envoyer a tous"}</button>
@@ -1306,62 +1286,103 @@ function MessagesPage({user,show,onUnreadChange}){
         </div>
       )}
       <div className="msg-chat-wrap" style={{display:"flex",flex:1,margin:"16px 28px 28px",border:"1px solid var(--border)",borderRadius:12,overflow:"hidden",background:"var(--bg2)",minHeight:400}}>
-        <div className="conv-list" style={{display:"flex",flexDirection:"column"}}>
+
+        {/* PANNEAU GAUCHE */}
+        <div className="conv-list" style={{display:"flex",flexDirection:"column",width:200,minWidth:200,flexShrink:0}}>
           <div style={{padding:"10px 12px",borderBottom:"1px solid var(--border)"}}>
-            <button className="btn btn-primary" style={{width:"100%",fontSize:".75rem",padding:"6px"}} onClick={()=>{setShowSearch(!showSearch);setSearchNew("");}}>✉ Nouveau message</button>
+            <button className="btn btn-primary" style={{width:"100%",fontSize:".75rem",padding:"6px"}} onClick={()=>{setShowNewConv(!showNewConv);setSearchNew("");}}>
+              {showNewConv?"← Retour":"✉ Nouveau message"}
+            </button>
           </div>
 
-          {showSearch&&(
-            <div style={{padding:"8px 12px",borderBottom:"1px solid var(--border)"}}>
-              <input style={{width:"100%",background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:"var(--radius)",padding:"6px 9px",color:"var(--text)",fontSize:".8rem",outline:"none"}}
-                placeholder="Rechercher..." value={searchNew} onChange={e=>setSearchNew(e.target.value)} autoFocus/>
-              {searchNew.trim().length>=2&&(
-                <div style={{marginTop:4}}>
-                  {searchResults.length===0
-                    ?<div style={{fontSize:".75rem",color:"var(--text3)",padding:"4px 0"}}>Aucun resultat</div>
-                    :searchResults.map(p=>(
-                    <div key={p.id} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 4px",cursor:"pointer",borderRadius:"var(--radius)"}}
-                      onMouseEnter={e=>e.currentTarget.style.background="var(--bg3)"}
-                      onMouseLeave={e=>e.currentTarget.style.background=""}
-                      onClick={()=>loadMessages(p)}>
+          {showNewConv?(
+            /* PANEL NOUVEAU MESSAGE */
+            <div style={{display:"flex",flexDirection:"column",flex:1,overflow:"hidden"}}>
+              <div style={{padding:"8px 12px",borderBottom:"1px solid var(--border)"}}>
+                <input
+                  style={{width:"100%",background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:"var(--radius)",padding:"6px 9px",color:"var(--text)",fontSize:".8rem",outline:"none"}}
+                  placeholder="Filtrer par nom..."
+                  value={searchNew}
+                  onChange={e=>setSearchNew(e.target.value)}
+                  autoFocus
+                />
+              </div>
+              <div style={{flex:1,overflowY:"auto"}}>
+                {filteredSearch.length===0
+                  ?<div style={{fontSize:".75rem",color:"var(--text3)",padding:"12px",textAlign:"center"}}>Aucun contact</div>
+                  :filteredSearch.map(p=>(
+                  <div key={p.id}
+                    className={`conv-item ${selected?.id===p.id?"active":""}`}
+                    onClick={()=>loadMessages(p)}
+                    style={{borderBottom:"1px solid var(--border)"}}>
+                    <div className="flex items-center gap-2">
                       <div className="avatar" style={{width:24,height:24,fontSize:".68rem",flexShrink:0}}>
                         {p.avatar_url?<img src={p.avatar_url} alt={p.name}/>:<span>{p.name[0]}</span>}
                       </div>
-                      <div><div style={{fontSize:".8rem",fontWeight:600}}>{p.name}</div><div style={{fontSize:".68rem",color:ROLE_COLOR[p.role]}}>{ROLE_LABEL[p.role]}</div></div>
+                      <div>
+                        <div style={{fontSize:".8rem",fontWeight:600,lineHeight:1.2}}>{p.name}</div>
+                        <div style={{fontSize:".65rem",color:ROLE_COLOR[p.role]}}>{ROLE_LABEL[p.role]}</div>
+                      </div>
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Toggle actives/archivées */}
-          <div style={{display:"flex",borderBottom:"1px solid var(--border)"}}>
-            <div style={{flex:1,padding:"7px 12px",fontSize:".72rem",fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",cursor:"pointer",color:!showArchived?"var(--red)":"var(--text3)",borderBottom:!showArchived?"2px solid var(--red)":"2px solid transparent",textAlign:"center"}} onClick={()=>setShowArchived(false)}>Actives</div>
-            <div style={{flex:1,padding:"7px 12px",fontSize:".72rem",fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",cursor:"pointer",color:showArchived?"var(--red)":"var(--text3)",borderBottom:showArchived?"2px solid var(--red)":"2px solid transparent",textAlign:"center"}} onClick={()=>setShowArchived(true)}>Archives {archivedCount>0&&`(${archivedCount})`}</div>
-          </div>
-
-          <div style={{flex:1,overflowY:"auto"}}>
-            {visibleConvs.length===0&&(
-              <div className="empty" style={{padding:"20px"}}>
-                <div className="empty-icon" style={{fontSize:"1.5rem"}}>{showArchived?"📦":"💬"}</div>
-                <div className="empty-text">{showArchived?"Aucune conversation archivee":"Aucune conversation\nCliquez sur Nouveau message"}</div>
+                  </div>
+                ))}
               </div>
-            )}
-            {visibleConvs.map(c=><ConvItem key={c.id} c={c}/>)}
-          </div>
-          <div style={{padding:"8px 12px",borderTop:"1px solid var(--border)",fontSize:".68rem",color:"var(--text3)",textAlign:"center"}}>× pour archiver · ↩ pour rouvrir</div>
+            </div>
+          ):(
+            /* PANEL CONVERSATIONS */
+            <>
+              <div style={{display:"flex",borderBottom:"1px solid var(--border)"}}>
+                <div style={{flex:1,padding:"6px 10px",fontSize:".68rem",fontWeight:700,textTransform:"uppercase",cursor:"pointer",color:!showArchived?"var(--red)":"var(--text3)",borderBottom:!showArchived?"2px solid var(--red)":"2px solid transparent",textAlign:"center"}} onClick={()=>setShowArchived(false)}>Actives</div>
+                <div style={{flex:1,padding:"6px 10px",fontSize:".68rem",fontWeight:700,textTransform:"uppercase",cursor:"pointer",color:showArchived?"var(--red)":"var(--text3)",borderBottom:showArchived?"2px solid var(--red)":"2px solid transparent",textAlign:"center"}} onClick={()=>setShowArchived(true)}>Archives{archivedCount>0?` (${archivedCount})`:""}</div>
+              </div>
+              <div style={{flex:1,overflowY:"auto"}}>
+                {visibleConvs.length===0&&(
+                  <div className="empty" style={{padding:"16px"}}>
+                    <div className="empty-icon" style={{fontSize:"1.2rem"}}>{showArchived?"📦":"💬"}</div>
+                    <div className="empty-text" style={{fontSize:".75rem"}}>{showArchived?"Aucune archive":"Démarrez une conv"}</div>
+                  </div>
+                )}
+                {visibleConvs.map(c=>(
+                  <div key={c.id} className={`conv-item ${selected?.id===c.id?"active":""}`} style={{borderBottom:"1px solid var(--border)"}}>
+                    <div className="flex items-center justify-between" onClick={()=>loadMessages(c)} style={{cursor:"pointer"}}>
+                      <div className="flex items-center gap-2">
+                        <div className="avatar" style={{width:24,height:24,fontSize:".68rem",flexShrink:0}}>
+                          {c.avatar_url?<img src={c.avatar_url} alt={c.name}/>:<span>{c.name[0]}</span>}
+                        </div>
+                        <div style={{minWidth:0}}>
+                          <div style={{fontSize:".8rem",fontWeight:600,lineHeight:1.2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:100}}>{c.name}</div>
+                          {c.lastMsg&&<div style={{fontSize:".65rem",color:"var(--text3)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:100}}>{c.lastMsg}</div>}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1" style={{flexShrink:0}}>
+                        {c.unread>0&&<span className="conv-unread">{c.unread}</span>}
+                        <span
+                          title={archived.includes(c.id)?"Rouvrir":"Archiver"}
+                          style={{fontSize:".75rem",color:"var(--text3)",cursor:"pointer",padding:"2px 4px"}}
+                          onClick={e=>{e.stopPropagation();archived.includes(c.id)?unarchiveConv(c.id):archiveConv(c.id);if(selected?.id===c.id)setSelected(null);}}
+                        >{archived.includes(c.id)?"↩":"×"}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </div>
 
-        <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+        {/* ZONE MESSAGES */}
+        <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",borderLeft:"1px solid var(--border)"}}>
           {selected?(
             <>
-              <div style={{padding:"12px 16px",borderBottom:"1px solid var(--border)",fontWeight:700,fontSize:".9rem",display:"flex",alignItems:"center",gap:10}}>
-                <div className="avatar" style={{width:28,height:28,fontSize:".75rem"}}>
+              <div style={{padding:"10px 14px",borderBottom:"1px solid var(--border)",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+                <div className="avatar" style={{width:28,height:28,fontSize:".75rem",flexShrink:0}}>
                   {selected.avatar_url?<img src={selected.avatar_url} alt={selected.name}/>:<span>{selected.name[0]}</span>}
                 </div>
-                {selected.name}
-                <span style={{fontSize:".72rem",color:ROLE_COLOR[selected.role],fontWeight:400}}>{ROLE_LABEL[selected.role]}</span>
+                <div style={{flex:1}}>
+                  <div style={{fontWeight:700,fontSize:".9rem"}}>{selected.name}</div>
+                  <div style={{fontSize:".68rem",color:ROLE_COLOR[selected.role]}}>{ROLE_LABEL[selected.role]}</div>
+                </div>
+                <button style={{background:"none",border:"1px solid var(--border)",borderRadius:6,padding:"3px 8px",color:"var(--text3)",cursor:"pointer",fontSize:".7rem"}} onClick={()=>{setSelected(null);setShowNewConv(true);}}>Changer</button>
               </div>
               <div className="chat-messages">
                 {messages.length===0&&<div className="empty" style={{padding:"24px"}}><div className="empty-text">Envoyez le premier message !</div></div>}
@@ -1374,11 +1395,16 @@ function MessagesPage({user,show,onUnreadChange}){
                 <div ref={messagesEndRef}/>
               </div>
               <div className="chat-input-bar">
-                <input className="chat-input" value={newMsg} onChange={e=>setNewMsg(e.target.value)} onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&send()} placeholder="Ecrire... (Entree pour envoyer)"/>
-                <button className="btn btn-primary" onClick={send} disabled={sending||!newMsg.trim()}>Envoyer</button>
+                <input className="chat-input" value={newMsg} onChange={e=>setNewMsg(e.target.value)} onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&send()} placeholder="Ecrire... (Entree pour envoyer)" style={{fontSize:"16px"}}/>
+                <button className="btn btn-primary" onClick={send} disabled={sending||!newMsg.trim()}>➤</button>
               </div>
             </>
-          ):<div className="empty" style={{flex:1}}><div className="empty-icon">💬</div><div className="empty-text">Selectionnez une conversation ou demarrez-en une nouvelle</div></div>}
+          ):(
+            <div className="empty" style={{flex:1}}>
+              <div className="empty-icon">💬</div>
+              <div className="empty-text">{showNewConv?"Selectionnez un contact":"Selectionnez une conversation\nou demarrez-en une nouvelle"}</div>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -1386,7 +1412,6 @@ function MessagesPage({user,show,onUnreadChange}){
 }
 
 
-// ─── REQUESTS ─────────────────────────────────────────────────────────────────
 function RequestsPage({user,show}){
   const [requests,setRequests]=useState([]);
   const [loading,setLoading]=useState(true);
@@ -1852,69 +1877,50 @@ function LeisureDashboard({user}){
   return(<div><div className="page-header"><div className="page-title">Bonjour, {(user.name||"").split(" ")[0]}</div><div className="page-subtitle">Bienvenue sur votre espace Bomb Team</div></div><div className="content"><div className="card" style={{background:"linear-gradient(135deg,rgba(204,0,0,.12) 0%,var(--bg2) 60%)",borderColor:"rgba(204,0,0,.3)"}}><div className="card-title" style={{marginBottom:5}}>Prochain cours</div><div style={{fontFamily:"var(--font-display)",fontSize:"1.5rem",fontWeight:900,color:"var(--red)",marginBottom:4}}>{next.day} — {next.time}</div><div className="text-sm">{next.theme}</div></div><div className="card"><div className="card-title" style={{marginBottom:10}}>Programme de la semaine</div>{prog.map((d,i)=><div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid var(--border)"}}><div><div className="text-sm font-bold">{d.day}</div><div className="text-xs text-dim">{d.theme}</div></div><div className="flex items-center gap-2"><span className="text-sm text-muted">{d.time}</span><span className="badge badge-red">{d.type}</span></div></div>)}</div></div></div>);
 }
 
-// ─── ROOT APP ─────────────────────────────────────────────────────────────────
-// ─── CHATBOT ──────────────────────────────────────────────────────────────────
-const CLUB_CONTEXT = `Tu es l'assistant virtuel du club de kickboxing Bomb Team Payet, situé à Saint-Maur-des-Fossés (Île-de-France).
-Tu aides les membres loisirs et les enfants à utiliser l'application et à comprendre la vie du club.
-Réponds toujours en français, de façon simple, chaleureuse et concise (2-3 phrases max sauf si on te demande plus de détails).
+// ─── CHATBOT (réponses locales — fonctionne sans API) ─────────────────────────
+const FAQ=[
+  {keys:["programme","horaire","cours","heure","quand","créneau","creneau"],rep:"📅 Les cours ont lieu :\n• Mercredi 20h-22h\n• Vendredi 20h-22h\n• Samedi 10h30-12h30\n\nLe mardi est réservé aux compétiteurs."},
+  {keys:["présence","presence","marquer","été","etais","j'étais","jadais"],rep:"✅ Pour indiquer ta présence :\n1. Clique sur \"Mes présences\"\n2. Sélectionne la séance dans la liste\n3. Clique sur ton nom pour te cocher ✓"},
+  {keys:["message","messagerie","écrire","contacter","coach","parler"],rep:"💬 Pour envoyer un message à un coach :\n1. Clique sur \"Messagerie\"\n2. Clique sur \"Nouveau message\"\n3. Sélectionne le coach dans la liste\n4. Écris ton message et appuie sur Entrée"},
+  {keys:["compétition","competition","tournoi","s'inscrire","inscrire","inscription"],rep:"🏆 Pour les compétitions :\n1. Clique sur \"Compétitions\"\n2. Tu verras le calendrier avec les prochaines dates\n3. Clique sur \"S'inscrire\" pour te porter candidat"},
+  {keys:["demande","séance spéciale","seance speciale","particulier","individuel"],rep:"📩 Pour demander une séance spécifique :\n1. Clique sur \"Demander une séance\"\n2. Choisis un coach\n3. Décris ce que tu veux travailler\n4. Le coach te répondra directement"},
+  {keys:["profil","photo","modifier","nom","poids","âge","age","information"],rep:"👤 Pour modifier ton profil :\n1. Clique sur \"Mon profil\"\n2. Modifie tes informations\n3. Pour changer ta photo : clique sur l'avatar rond\n4. Appuie sur \"Enregistrer\""},
+  {keys:["newsletter","pdf","document","télécharger","telecharger"],rep:"📄 La newsletter est disponible dans \"Club & Actu\" tout en bas. Clique sur \"Télécharger le PDF\" pour l'ouvrir ou la sauvegarder."},
+  {keys:["actualité","actualite","info","nouvelle","annonce"],rep:"📰 Les actualités du club sont dans \"Club & Actu\". Tu y trouveras aussi les infos pratiques du club (adresse, horaires, tarifs)."},
+  {keys:["historique","séances passées","seances passees","contenu","exercice"],rep:"📋 Pour voir le contenu des cours passés :\nClique sur \"Historique cours\" — tu verras les séances avec leurs thèmes et exercices."},
+  {keys:["problème","probleme","bug","marche pas","fonctionne pas","erreur"],rep:"🔧 Si tu as un problème technique, le mieux est de contacter l'admin directement via la Messagerie. Il pourra t'aider rapidement !"},
+  {keys:["bonjour","salut","hello","bonsoir","coucou"],rep:`👋 Bonjour ! Je suis l'assistant Bomb Team Payet.\n\nJe peux t'aider sur :\n• Le programme des cours\n• Comment utiliser l'application\n• Les compétitions\n• La messagerie\n\nQue veux-tu savoir ?`},
+  {keys:["merci","super","parfait","cool","nickel","top"],rep:"😊 Avec plaisir ! N'hésite pas si tu as d'autres questions. Bonne séance ! 🥊"},
+];
 
-PROGRAMME DES COURS :
-- Mercredi 20h00-22h00 (Mixte — tous niveaux)
-- Vendredi 20h00-22h00 (Mixte — tous niveaux)  
-- Samedi 10h30-12h30 (Mixte — tous niveaux)
-- Mardi 20h00-22h00 : réservé aux compétiteurs uniquement
-
-FONCTIONNEMENT DE L'APP :
-- "Programme" : voir les cours de la semaine
-- "Historique cours" : voir le contenu des séances passées
-- "Mes présences" : indiquer que tu étais présent à un cours
-- "Compétitions" : voir le calendrier et s'inscrire
-- "Demander une séance" : envoyer une demande spécifique à un coach
-- "Messagerie" : envoyer un message à un coach ou à l'admin
-- "Club & Actu" : infos du club, actualités et newsletter
-- "Mon profil" : modifier tes infos et ta photo
-
-RÈGLES IMPORTANTES :
-- Si tu ne connais pas une information précise (tarifs exacts, adresse exacte...), dis-le honnêtement et conseille de contacter l'admin via la messagerie.
-- Tu n'as pas accès aux données personnelles des membres.
-- Pour tout problème technique avec l'app, orienter vers l'admin via la messagerie.`;
+function getReply(input){
+  const lower=input.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+  for(const f of FAQ){
+    if(f.keys.some(k=>lower.includes(k.normalize("NFD").replace(/[\u0300-\u036f]/g,"")))){
+      return f.rep;
+    }
+  }
+  return "🤔 Je ne suis pas sûr de comprendre ta question. Tu peux me demander :\n• Le programme des cours\n• Comment marquer ta présence\n• Comment envoyer un message\n• Comment s'inscrire à une compétition\n\nOu contacte directement un coach via la Messagerie !";
+}
 
 function Chatbot({user}){
   const [open,setOpen]=useState(false);
   const [messages,setMessages]=useState([
-    {role:"assistant",content:`Bonjour ${user.name?.split(" ")[0]} ! 👋 Je suis l'assistant Bomb Team Payet. Comment puis-je t'aider ?`}
+    {from:"bot",text:`Bonjour ${(user.name||"").split(" ")[0]} ! 👋 Je suis l'assistant Bomb Team Payet.\nPose-moi une question sur le club ou l'application !`}
   ]);
   const [input,setInput]=useState("");
-  const [loading,setLoading]=useState(false);
   const bottomRef=useRef(null);
 
-  useEffect(()=>{bottomRef.current?.scrollIntoView({behavior:"smooth"});},[messages,loading]);
+  useEffect(()=>{bottomRef.current?.scrollIntoView({behavior:"smooth"});},[messages]);
 
-  const send=async()=>{
-    if(!input.trim()||loading)return;
-    const userMsg={role:"user",content:input.trim()};
-    setMessages(prev=>[...prev,userMsg]);
+  const send=()=>{
+    if(!input.trim())return;
+    const q=input.trim();
     setInput("");
-    setLoading(true);
-    try{
-      const history=messages.slice(-8).map(m=>({role:m.role,content:m.content}));
-      const res=await fetch("https://api.anthropic.com/v1/messages",{
-        method:"POST",
-        headers:{"Content-Type":"application/json","anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
-        body:JSON.stringify({
-          model:"claude-sonnet-4-6",
-          max_tokens:300,
-          system:CLUB_CONTEXT,
-          messages:[...history,userMsg]
-        })
-      });
-      const data=await res.json();
-      const reply=data.content?.[0]?.text||"Désolé, je n'ai pas pu répondre. Essaie à nouveau !";
-      setMessages(prev=>[...prev,{role:"assistant",content:reply}]);
-    }catch(e){
-      setMessages(prev=>[...prev,{role:"assistant",content:"Oups, une erreur est survenue. Réessaie dans un moment !"}]);
-    }
-    setLoading(false);
+    setMessages(prev=>[...prev,{from:"user",text:q}]);
+    setTimeout(()=>{
+      setMessages(prev=>[...prev,{from:"bot",text:getReply(q)}]);
+    },400);
   };
 
   return(
@@ -1930,24 +1936,13 @@ function Chatbot({user}){
           </div>
           <div className="chatbot-messages">
             {messages.map((m,i)=>(
-              <div key={i} className={`chatbot-msg ${m.role==="assistant"?"bot":"user"}`}>{m.content}</div>
+              <div key={i} className={`chatbot-msg ${m.from==="bot"?"bot":"user"}`} style={{whiteSpace:"pre-line"}}>{m.text}</div>
             ))}
-            {loading&&(
-              <div className="chatbot-msg bot">
-                <div className="chatbot-typing"><span/><span/><span/></div>
-              </div>
-            )}
             <div ref={bottomRef}/>
           </div>
           <div className="chatbot-input-bar">
-            <input
-              className="chatbot-input"
-              value={input}
-              onChange={e=>setInput(e.target.value)}
-              onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&send()}
-              placeholder="Écris ta question..."
-            />
-            <button className="chatbot-send" onClick={send} disabled={loading||!input.trim()}>➤</button>
+            <input className="chatbot-input" value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&send()} placeholder="Écris ta question..." style={{fontSize:"16px"}}/>
+            <button className="chatbot-send" onClick={send} disabled={!input.trim()}>➤</button>
           </div>
         </div>
       )}
@@ -1969,7 +1964,21 @@ export default function App(){
 
   const loadAnnounces=async()=>{const{data}=await supabase.from("announcements").select("*").eq("active",true).order("created_at",{ascending:false});setAnnounces(data||[]);};
   const loadPending=async(u)=>{if(u?.role==="coach"||u?.role==="admin"){const{count}=await supabase.from("session_requests").select("*",{count:"exact",head:true}).eq("coach_id",u.id).eq("status","pending");setPendingRequests(count||0);}};
-  const loadUnread=async(u)=>{if(!u)return;const{data}=await supabase.from("messages").select("from_id").eq("to_id",u.id).eq("read",false);const total=(data||[]).length;setUnreadCount(total);};
+  const loadUnread=async(u)=>{
+    if(!u)return;
+    // Ne compter que les messages de vrais utilisateurs (qui ont un auth account)
+    const{data}=await supabase.from("messages")
+      .select("from_id")
+      .eq("to_id",u.id)
+      .eq("read",false);
+    // Filtrer les from_id qui correspondent à de vrais profils avec email
+    const uniqueSenders=[...new Set((data||[]).map(m=>m.from_id))];
+    if(uniqueSenders.length===0){setUnreadCount(0);return;}
+    const{data:realProfiles}=await supabase.from("profiles").select("id").in("id",uniqueSenders);
+    const realIds=new Set((realProfiles||[]).map(p=>p.id));
+    const realUnread=(data||[]).filter(m=>realIds.has(m.from_id)).length;
+    setUnreadCount(realUnread);
+  };
 
   useEffect(()=>{
     loadAnnounces();
