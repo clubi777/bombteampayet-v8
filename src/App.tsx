@@ -303,8 +303,8 @@ const css = `
     .card{padding:14px;}
     .card-title{font-size:1rem;}
     /* MESSAGERIE MOBILE */
-    .msg-chat-wrap{flex-direction:column!important;margin:10px 10px 10px!important;height:calc(100vh - 230px)!important;min-height:300px!important;}
-    .conv-list{width:100%!important;min-width:unset!important;max-height:140px;border-right:none!important;border-bottom:1px solid var(--border);}
+    .msg-chat-wrap{flex-direction:column!important;margin:10px 10px 10px!important;height:calc(100vh - 200px)!important;min-height:400px!important;}
+    .msg-chat-wrap > div:first-child{width:100%!important;min-width:unset!important;max-height:55%!important;border-right:none!important;border-bottom:1px solid var(--border)!important;}
     .chat-input-bar{padding:10px!important;}
     .chat-input{font-size:16px!important;}
   }
@@ -1285,10 +1285,10 @@ function MessagesPage({user,show,onUnreadChange}){
           </div>
         </div>
       )}
-      <div className="msg-chat-wrap" style={{display:"flex",flex:1,margin:"16px 28px 28px",border:"1px solid var(--border)",borderRadius:12,overflow:"hidden",background:"var(--bg2)",minHeight:400}}>
+      <div className="msg-chat-wrap" style={{display:"flex",flex:1,margin:"16px 28px 28px",border:"1px solid var(--border)",borderRadius:12,overflow:"hidden",background:"var(--bg2)",minHeight:450}}>
 
         {/* PANNEAU GAUCHE */}
-        <div className="conv-list" style={{display:"flex",flexDirection:"column",width:200,minWidth:200,flexShrink:0}}>
+        <div className="conv-list" style={{display:"flex",flexDirection:"column",width:220,minWidth:220,flexShrink:0}}>
           <div style={{padding:"10px 12px",borderBottom:"1px solid var(--border)"}}>
             <button className="btn btn-primary" style={{width:"100%",fontSize:".75rem",padding:"6px"}} onClick={()=>{setShowNewConv(!showNewConv);setSearchNew("");}}>
               {showNewConv?"← Retour":"✉ Nouveau message"}
@@ -1296,36 +1296,40 @@ function MessagesPage({user,show,onUnreadChange}){
           </div>
 
           {showNewConv?(
-            /* PANEL NOUVEAU MESSAGE */
+            /* PANEL NOUVEAU MESSAGE — liste pleine hauteur */
             <div style={{display:"flex",flexDirection:"column",flex:1,overflow:"hidden"}}>
               <div style={{padding:"8px 12px",borderBottom:"1px solid var(--border)"}}>
                 <input
-                  style={{width:"100%",background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:"var(--radius)",padding:"6px 9px",color:"var(--text)",fontSize:".8rem",outline:"none"}}
+                  style={{width:"100%",background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:"var(--radius)",padding:"7px 10px",color:"var(--text)",fontSize:"16px",outline:"none"}}
                   placeholder="Filtrer par nom..."
                   value={searchNew}
                   onChange={e=>setSearchNew(e.target.value)}
                   autoFocus
                 />
               </div>
-              <div style={{flex:1,overflowY:"auto"}}>
+              {/* Liste scrollable — toute la hauteur disponible */}
+              <div style={{flex:1,overflowY:"auto",minHeight:0}}>
                 {filteredSearch.length===0
                   ?<div style={{fontSize:".75rem",color:"var(--text3)",padding:"12px",textAlign:"center"}}>Aucun contact</div>
                   :filteredSearch.map(p=>(
                   <div key={p.id}
                     className={`conv-item ${selected?.id===p.id?"active":""}`}
                     onClick={()=>loadMessages(p)}
-                    style={{borderBottom:"1px solid var(--border)"}}>
+                    style={{borderBottom:"1px solid var(--border)",padding:"10px 12px"}}>
                     <div className="flex items-center gap-2">
-                      <div className="avatar" style={{width:24,height:24,fontSize:".68rem",flexShrink:0}}>
+                      <div className="avatar" style={{width:28,height:28,fontSize:".75rem",flexShrink:0}}>
                         {p.avatar_url?<img src={p.avatar_url} alt={p.name}/>:<span>{p.name[0]}</span>}
                       </div>
                       <div>
-                        <div style={{fontSize:".8rem",fontWeight:600,lineHeight:1.2}}>{p.name}</div>
-                        <div style={{fontSize:".65rem",color:ROLE_COLOR[p.role]}}>{ROLE_LABEL[p.role]}</div>
+                        <div style={{fontSize:".85rem",fontWeight:600,lineHeight:1.3}}>{p.name}</div>
+                        <div style={{fontSize:".68rem",color:ROLE_COLOR[p.role]}}>{ROLE_LABEL[p.role]}</div>
                       </div>
                     </div>
                   </div>
                 ))}
+              </div>
+              <div style={{padding:"6px 12px",fontSize:".68rem",color:"var(--text3)",borderTop:"1px solid var(--border)",textAlign:"center"}}>
+                {filteredSearch.length} contact{filteredSearch.length!==1?"s":""}
               </div>
             </div>
           ):(
@@ -1699,14 +1703,21 @@ function ClubPage({user,show}){
     const{error:upErr}=await supabase.storage.from('newsletters').upload(path,file,{upsert:true});
     if(upErr){show(upErr.message,"error");setUploadingNL(false);return;}
     const{data:urlData}=supabase.storage.from('newsletters').getPublicUrl(path);
-    const{data:existing}=await supabase.from("newsletters").select("id,file_path").order("uploaded_at",{ascending:false}).limit(1).single().catch(()=>({data:null}));
-    if(existing?.file_path){try{await supabase.storage.from('newsletters').remove([existing.file_path]);}catch(e){}}
-    const payload={title:file.name.replace(/\.pdf$/i,""),file_path:path,file_url:urlData.publicUrl,uploaded_by:user.name,uploaded_at:new Date().toISOString()};
-    if(existing?.id){
-      await supabase.from("newsletters").update(payload).eq("id",existing.id);
-    } else {
-      await supabase.from("newsletters").insert(payload);
-    }
+    // Supprimer ancienne entrée si elle existe
+    try{
+      const{data:existing}=await supabase.from("newsletters").select("id,file_path").limit(1).single();
+      if(existing?.file_path){try{await supabase.storage.from('newsletters').remove([existing.file_path]);}catch(e){}}
+      if(existing?.id){await supabase.from("newsletters").delete().eq("id",existing.id);}
+    }catch(e){}
+    // Insérer la nouvelle
+    const{error:insErr}=await supabase.from("newsletters").insert({
+      title:file.name.replace(/\.pdf$/i,""),
+      file_path:path,
+      file_url:urlData.publicUrl,
+      uploaded_by:user.name,
+      uploaded_at:new Date().toISOString()
+    });
+    if(insErr){show(`Erreur: ${insErr.message}`,"error");setUploadingNL(false);return;}
     show("Newsletter publiee ✓");setUploadingNL(false);load();
   };
   const deleteNewsletter=async()=>{
