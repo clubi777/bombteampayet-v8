@@ -531,15 +531,18 @@ function Sidebar({user,activeView,onNav,onLogout,unreadCount,pendingRequests}){
 
 // ─── PROFILE ──────────────────────────────────────────────────────────────────
 function ProfileView({user,show,onAvatarUpdate}){
-  const [form,setForm]=useState({name:user.name||"",sex:user.sex||"",birth_date:user.birth_date||"",weight:user.weight||"",level:user.level||"Debutant"});
+  const splitName=(n="")=>{const p=n.trim().split(" ");const first=p[0]||"";const last=p.slice(1).join(" ")||"";return{first,last};};
+  const {first:initFirst,last:initLast}=splitName(user.name);
+  const [form,setForm]=useState({first:initFirst,last:initLast,sex:user.sex||"",birth_date:user.birth_date||"",weight:user.weight||"",level:user.level||"Debutant"});
+  const fullName=(form.first+" "+form.last).trim();
   const [saving,setSaving]=useState(false);
   const [errs,setErrs]=useState({});
   const age=calcAge(form.birth_date);
   const save=async()=>{
-    const e=validate({name:"Nom complet"},form);
+    const e=validate({first:"Prénom",last:"Nom"},form);
     if(Object.keys(e).length){setErrs(e);return;}
     setSaving(true);
-    await supabase.from("profiles").update({...form,weight:form.weight?Number(form.weight):null}).eq("id",user.id);
+    await supabase.from("profiles").update({name:fullName,weight:form.weight?Number(form.weight):null,sex:form.sex,birth_date:form.birth_date||null,level:form.level}).eq("id",user.id);
     setSaving(false);show("Profil mis a jour ✓");
   };
   return(
@@ -549,7 +552,8 @@ function ProfileView({user,show,onAvatarUpdate}){
         <div className="profile-hero">
           <AvatarUpload user={user} onUpload={url=>onAvatarUpdate&&onAvatarUpdate(url)}/>
           <div>
-            <div style={{fontFamily:"var(--font-display)",fontSize:"1.7rem",fontWeight:900,textTransform:"uppercase",letterSpacing:".04em"}}>{user.name}</div>
+            <div className="field form-full">
+              <div style={{fontFamily:"var(--font-display)",fontSize:"1.7rem",fontWeight:900,textTransform:"uppercase",letterSpacing:".04em"}}>{fullName||user.name}</div>
             <div className="flex gap-2 items-center mt-2" style={{flexWrap:"wrap"}}>
               <span className="badge badge-red">{ROLE_LABEL[user.role]}</span>
               {form.level&&<LevelBadge level={form.level}/>}
@@ -561,7 +565,8 @@ function ProfileView({user,show,onAvatarUpdate}){
         </div>
         <div className="card">
           <div className="form-grid">
-            <div className="field form-full"><label>Nom *</label><input className={errs.name?"err":""} value={form.name} onChange={e=>{setForm({...form,name:e.target.value});setErrs({});}} /><FieldErr errs={errs} field="name"/></div>
+            <div className="field"><label>Prénom *</label><input className={errs.first?"err":""} value={form.first} onChange={e=>{setForm({...form,first:e.target.value});setErrs({});}} placeholder="Prénom"/><FieldErr errs={errs} field="first"/></div>
+            <div className="field"><label>Nom *</label><input className={errs.last?"err":""} value={form.last} onChange={e=>{setForm({...form,last:e.target.value});setErrs({});}} placeholder="Nom de famille"/><FieldErr errs={errs} field="last"/></div>
             <div className="field"><label>Sexe</label><select value={form.sex} onChange={e=>setForm({...form,sex:e.target.value})}><option value="">Non renseigne</option><option value="H">Homme</option><option value="F">Femme</option></select></div>
             <div className="field"><label>Date de naissance</label><input type="date" value={form.birth_date} onChange={e=>setForm({...form,birth_date:e.target.value})}/>{age&&<div className="text-xs text-dim" style={{marginTop:3}}>{age} ans</div>}</div>
             <div className="field"><label>Poids (kg)</label><input type="number" value={form.weight} onChange={e=>setForm({...form,weight:e.target.value})} placeholder="72"/></div>
@@ -616,27 +621,34 @@ function AdminUsers({show}){
   const [errs,setErrs]=useState({});
   const [search,setSearch]=useState("");
   const [filterRole,setFilterRole]=useState("Tous");
-  const ef={name:"",email:"",password:"",role:"leisure",sex:"",birth_date:"",weight:"",level:"Debutant"};
+  const ef={first:"",last:"",email:"",password:"",role:"leisure",sex:"",birth_date:"",weight:"",level:"Debutant"};
   const [form,setForm]=useState(ef);
   const [editForm,setEditForm]=useState({name:"",role:"leisure",sex:"",birth_date:"",weight:"",level:"Debutant"});
   const load=async()=>{setLoading(true);const{data}=await supabase.from("profiles").select("*").order("name");setUsers(data||[]);setLoading(false);};
   useEffect(()=>{load();},[]);
   const filtered=users.filter(u=>(filterRole==="Tous"||u.role===filterRole)&&(!search||u.name?.toLowerCase().includes(search.toLowerCase())));
   const createUser=async()=>{
-    const e=validate({name:"Nom",email:"Email",password:"Mot de passe"},form);
+    const e=validate({first:"Prénom",last:"Nom",email:"Email",password:"Mot de passe"},form);
     if(Object.keys(e).length){setErrs(e);return;}
     setSaving(true);
+    const fullName=(form.first+" "+form.last).trim();
     const{data:auth,error:ae}=await supabase.auth.signUp({email:form.email,password:form.password});
     if(ae){show(ae.message,"error");setSaving(false);return;}
-    await supabase.from("profiles").insert({id:auth.user.id,name:form.name,role:form.role,avatar:form.name[0].toUpperCase(),sex:form.sex,birth_date:form.birth_date||null,weight:form.weight?Number(form.weight):null,level:form.level});
+    await supabase.from("profiles").insert({id:auth.user.id,name:fullName,role:form.role,avatar:fullName[0].toUpperCase(),sex:form.sex,birth_date:form.birth_date||null,weight:form.weight?Number(form.weight):null,level:form.level});
     show("Compte cree ✓");setModal(false);setSaving(false);setForm(ef);load();
   };
-  const openEdit=u=>{setEditUser(u);setEditForm({name:u.name,role:u.role,sex:u.sex||"",birth_date:u.birth_date||"",weight:u.weight||"",level:u.level||"Debutant"});setErrs({});setModal("edit");};
+  const openEdit=u=>{
+    const p=u.name?.trim().split(" ")||[];
+    setEditUser(u);
+    setEditForm({first:p[0]||"",last:p.slice(1).join(" ")||"",role:u.role,sex:u.sex||"",birth_date:u.birth_date||"",weight:u.weight||"",level:u.level||"Debutant"});
+    setErrs({});setModal("edit");
+  };
   const saveEdit=async()=>{
-    const e=validate({name:"Nom"},editForm);
+    const e=validate({first:"Prénom",last:"Nom"},editForm);
     if(Object.keys(e).length){setErrs(e);return;}
     setSaving(true);
-    await supabase.from("profiles").update({name:editForm.name,role:editForm.role,avatar:editForm.name[0].toUpperCase(),sex:editForm.sex,birth_date:editForm.birth_date||null,weight:editForm.weight?Number(editForm.weight):null,level:editForm.level}).eq("id",editUser.id);
+    const fullName=(editForm.first+" "+editForm.last).trim();
+    await supabase.from("profiles").update({name:fullName,role:editForm.role,avatar:fullName[0].toUpperCase(),sex:editForm.sex,birth_date:editForm.birth_date||null,weight:editForm.weight?Number(editForm.weight):null,level:editForm.level}).eq("id",editUser.id);
     show("Mis a jour ✓");setSaving(false);setModal(false);load();
   };
   const doDelete=async()=>{
@@ -684,7 +696,8 @@ function AdminUsers({show}){
       </div>
       {modal==="create"&&<Modal title="Creer un compte" onClose={()=>setModal(false)}>
         <div className="form-grid">
-          <div className="field form-full"><label>Nom *</label><input className={errs.name?"err":""} value={form.name} onChange={e=>{setForm({...form,name:e.target.value});setErrs({...errs,name:""});}}/><FieldErr errs={errs} field="name"/></div>
+          <div className="field"><label>Prénom *</label><input className={errs.first?"err":""} value={form.first} onChange={e=>{setForm({...form,first:e.target.value});setErrs({...errs,first:""});}}/><FieldErr errs={errs} field="first"/></div>
+          <div className="field"><label>Nom *</label><input className={errs.last?"err":""} value={form.last} onChange={e=>{setForm({...form,last:e.target.value});setErrs({...errs,last:""});}}/><FieldErr errs={errs} field="last"/></div>
           <div className="field"><label>Email *</label><input className={errs.email?"err":""} value={form.email} onChange={e=>{setForm({...form,email:e.target.value});setErrs({...errs,email:""});}}/><FieldErr errs={errs} field="email"/></div>
           <div className="field"><label>Mot de passe *</label><input type="password" className={errs.password?"err":""} value={form.password} onChange={e=>{setForm({...form,password:e.target.value});setErrs({...errs,password:""});}}/><FieldErr errs={errs} field="password"/></div>
           <div className="field form-full"><label>Role</label><select value={form.role} onChange={e=>setForm({...form,role:e.target.value})}><option value="coach">Coach</option><option value="competitor">Competiteur</option><option value="leisure">Loisir</option><option value="child">Enfant</option></select></div>
@@ -697,7 +710,8 @@ function AdminUsers({show}){
       </Modal>}
       {modal==="edit"&&editUser&&<Modal title={`Modifier — ${editUser.name}`} onClose={()=>setModal(false)}>
         <div className="form-grid">
-          <div className="field form-full"><label>Nom *</label><input className={errs.name?"err":""} value={editForm.name} onChange={e=>{setEditForm({...editForm,name:e.target.value});setErrs({...errs,name:""});}}/><FieldErr errs={errs} field="name"/></div>
+          <div className="field"><label>Prénom *</label><input className={errs.first?"err":""} value={editForm.first||""} onChange={e=>{setEditForm({...editForm,first:e.target.value});setErrs({...errs,first:""});}}/><FieldErr errs={errs} field="first"/></div>
+          <div className="field"><label>Nom *</label><input className={errs.last?"err":""} value={editForm.last||""} onChange={e=>{setEditForm({...editForm,last:e.target.value});setErrs({...errs,last:""});}}/><FieldErr errs={errs} field="last"/></div>
           <div className="field form-full"><label>Role</label><select value={editForm.role} onChange={e=>setEditForm({...editForm,role:e.target.value})}><option value="coach">Coach</option><option value="competitor">Competiteur</option><option value="leisure">Loisir</option><option value="child">Enfant</option><option value="admin">Admin</option></select></div>
           <div className="field"><label>Sexe</label><select value={editForm.sex} onChange={e=>setEditForm({...editForm,sex:e.target.value})}><option value="">Non renseigne</option><option value="H">Homme</option><option value="F">Femme</option></select></div>
           <div className="field"><label>Naissance</label><input type="date" value={editForm.birth_date} onChange={e=>setEditForm({...editForm,birth_date:e.target.value})}/></div>
@@ -1263,13 +1277,21 @@ function MessagesPage({user,show,onUnreadChange}){
     setBroadcast("");setSendingBC(false);load();
   };
 
-  // Recherche filtrée — parmi tous les profils disponibles
-  const filteredSearch=searchNew.trim().length>=1
-    ? allProfiles.filter(p=>p.name?.toLowerCase().includes(searchNew.toLowerCase()))
-    : allProfiles;
+  // Filtre par rôle pour la recherche de contacts
+  const [filterRole,setFilterRole]=useState("Tous");
+
+  // Recherche filtrée par nom ET par rôle
+  const filteredSearch=allProfiles
+    .filter(p=>filterRole==="Tous"||p.role===filterRole)
+    .filter(p=>searchNew.trim().length<1||p.name?.toLowerCase().includes(searchNew.toLowerCase()));
 
   const visibleConvs=showArchived?convs.filter(c=>archived.includes(c.id)):convs.filter(c=>!archived.includes(c.id));
   const archivedCount=convs.filter(c=>archived.includes(c.id)).length;
+
+  // Rôles disponibles selon le profil
+  const availableRoles=isStaff
+    ?["Tous","coach","admin","competitor","leisure","child"]
+    :["Tous","coach","admin"];
 
   return(
     <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
@@ -1285,44 +1307,59 @@ function MessagesPage({user,show,onUnreadChange}){
           </div>
         </div>
       )}
-      <div className="msg-chat-wrap" style={{display:"flex",flex:1,margin:"16px 28px 28px",border:"1px solid var(--border)",borderRadius:12,overflow:"hidden",background:"var(--bg2)",minHeight:450}}>
+      <div className="msg-chat-wrap" style={{display:"flex",flex:1,margin:"16px 28px 28px",border:"1px solid var(--border)",borderRadius:12,overflow:"hidden",background:"var(--bg2)",minHeight:480}}>
 
-        {/* PANNEAU GAUCHE */}
-        <div className="conv-list" style={{display:"flex",flexDirection:"column",width:220,minWidth:220,flexShrink:0}}>
+        {/* PANNEAU GAUCHE — s'élargit en mode nouveau message */}
+        <div style={{display:"flex",flexDirection:"column",width:showNewConv?320:220,minWidth:showNewConv?320:220,flexShrink:0,transition:"width .2s",borderRight:"1px solid var(--border)"}}>
           <div style={{padding:"10px 12px",borderBottom:"1px solid var(--border)"}}>
-            <button className="btn btn-primary" style={{width:"100%",fontSize:".75rem",padding:"6px"}} onClick={()=>{setShowNewConv(!showNewConv);setSearchNew("");}}>
-              {showNewConv?"← Retour":"✉ Nouveau message"}
+            <button className="btn btn-primary" style={{width:"100%",fontSize:".75rem",padding:"7px"}} onClick={()=>{setShowNewConv(!showNewConv);setSearchNew("");setFilterRole("Tous");}}>
+              {showNewConv?"← Retour aux conversations":"✉ Nouveau message"}
             </button>
           </div>
 
           {showNewConv?(
-            /* PANEL NOUVEAU MESSAGE — liste pleine hauteur */
+            /* PANEL NOUVEAU MESSAGE — liste pleine hauteur + filtres */
             <div style={{display:"flex",flexDirection:"column",flex:1,overflow:"hidden"}}>
+              {/* Barre de recherche */}
               <div style={{padding:"8px 12px",borderBottom:"1px solid var(--border)"}}>
                 <input
                   style={{width:"100%",background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:"var(--radius)",padding:"7px 10px",color:"var(--text)",fontSize:"16px",outline:"none"}}
-                  placeholder="Filtrer par nom..."
+                  placeholder="Rechercher par nom..."
                   value={searchNew}
                   onChange={e=>setSearchNew(e.target.value)}
                   autoFocus
                 />
               </div>
-              {/* Liste scrollable — toute la hauteur disponible */}
+              {/* Filtres par rôle */}
+              <div style={{padding:"8px 10px",borderBottom:"1px solid var(--border)",display:"flex",flexWrap:"wrap",gap:4}}>
+                {availableRoles.map(r=>(
+                  <button key={r}
+                    onClick={()=>setFilterRole(r)}
+                    style={{padding:"3px 8px",borderRadius:12,fontSize:".65rem",fontWeight:700,textTransform:"uppercase",letterSpacing:".04em",cursor:"pointer",border:"1px solid",
+                      background:filterRole===r?(r==="Tous"?"var(--red)":ROLE_COLOR[r]||"var(--red)"):"var(--bg3)",
+                      color:filterRole===r?"#fff":(r==="Tous"?"var(--text2)":ROLE_COLOR[r]||"var(--text2)"),
+                      borderColor:filterRole===r?(r==="Tous"?"var(--red)":ROLE_COLOR[r]||"var(--red)"):"var(--border)"
+                    }}>
+                    {r==="Tous"?"Tous":ROLE_LABEL[r]}
+                  </button>
+                ))}
+              </div>
+              {/* Liste scrollable */}
               <div style={{flex:1,overflowY:"auto",minHeight:0}}>
                 {filteredSearch.length===0
-                  ?<div style={{fontSize:".75rem",color:"var(--text3)",padding:"12px",textAlign:"center"}}>Aucun contact</div>
+                  ?<div style={{fontSize:".78rem",color:"var(--text3)",padding:"16px",textAlign:"center"}}>Aucun contact trouvé</div>
                   :filteredSearch.map(p=>(
                   <div key={p.id}
                     className={`conv-item ${selected?.id===p.id?"active":""}`}
                     onClick={()=>loadMessages(p)}
-                    style={{borderBottom:"1px solid var(--border)",padding:"10px 12px"}}>
+                    style={{borderBottom:"1px solid var(--border)",padding:"10px 14px"}}>
                     <div className="flex items-center gap-2">
-                      <div className="avatar" style={{width:28,height:28,fontSize:".75rem",flexShrink:0}}>
+                      <div className="avatar" style={{width:30,height:30,fontSize:".78rem",flexShrink:0}}>
                         {p.avatar_url?<img src={p.avatar_url} alt={p.name}/>:<span>{p.name[0]}</span>}
                       </div>
                       <div>
-                        <div style={{fontSize:".85rem",fontWeight:600,lineHeight:1.3}}>{p.name}</div>
-                        <div style={{fontSize:".68rem",color:ROLE_COLOR[p.role]}}>{ROLE_LABEL[p.role]}</div>
+                        <div style={{fontSize:".88rem",fontWeight:600,lineHeight:1.3}}>{p.name}</div>
+                        <div style={{fontSize:".7rem",color:ROLE_COLOR[p.role]}}>{ROLE_LABEL[p.role]}</div>
                       </div>
                     </div>
                   </div>
