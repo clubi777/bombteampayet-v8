@@ -304,7 +304,7 @@ const css = `
     .card-title{font-size:1rem;}
     /* MESSAGERIE MOBILE */
     .msg-chat-wrap{flex-direction:column!important;margin:10px 10px 10px!important;height:calc(100vh - 200px)!important;min-height:400px!important;}
-    .msg-chat-wrap > div:first-child{width:100%!important;min-width:unset!important;max-height:55%!important;border-right:none!important;border-bottom:1px solid var(--border)!important;}
+    .msg-chat-wrap > div:first-child{width:100%!important;min-width:unset!important;max-height:60%!important;border-right:none!important;border-bottom:1px solid var(--border)!important;}
     .chat-input-bar{padding:10px!important;}
     .chat-input{font-size:16px!important;}
   }
@@ -1309,7 +1309,7 @@ function MessagesPage({user,show,onUnreadChange}){
       <div className="msg-chat-wrap" style={{display:"flex",flex:1,margin:"16px 28px 28px",border:"1px solid var(--border)",borderRadius:12,overflow:"hidden",background:"var(--bg2)",minHeight:480}}>
 
         {/* PANNEAU GAUCHE — s'élargit en mode nouveau message */}
-        <div style={{display:"flex",flexDirection:"column",width:showNewConv?320:220,minWidth:showNewConv?320:220,flexShrink:0,transition:"width .2s",borderRight:"1px solid var(--border)"}}>
+        <div style={{display:"flex",flexDirection:"column",width:showNewConv?480:220,minWidth:showNewConv?480:220,flexShrink:0,transition:"width .25s ease",borderRight:"1px solid var(--border)"}}>
           <div style={{padding:"10px 12px",borderBottom:"1px solid var(--border)"}}>
             <button className="btn btn-primary" style={{width:"100%",fontSize:".75rem",padding:"7px"}} onClick={()=>{setShowNewConv(!showNewConv);setSearchNew("");setFilterRole("Tous");}}>
               {showNewConv?"← Retour aux conversations":"✉ Nouveau message"}
@@ -1351,13 +1351,13 @@ function MessagesPage({user,show,onUnreadChange}){
                   <div key={p.id}
                     className={`conv-item ${selected?.id===p.id?"active":""}`}
                     onClick={()=>loadMessages(p)}
-                    style={{borderBottom:"1px solid var(--border)",padding:"10px 14px"}}>
+                    style={{borderBottom:"1px solid var(--border)",padding:"7px 14px"}}>
                     <div className="flex items-center gap-2">
-                      <div className="avatar" style={{width:30,height:30,fontSize:".78rem",flexShrink:0}}>
+                      <div className="avatar" style={{width:28,height:28,fontSize:".75rem",flexShrink:0}}>
                         {p.avatar_url?<img src={p.avatar_url} alt={p.name}/>:<span>{p.name[0]}</span>}
                       </div>
-                      <div>
-                        <div style={{fontSize:".88rem",fontWeight:600,lineHeight:1.3}}>{p.name}</div>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:".88rem",fontWeight:600,lineHeight:1.2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{p.name}</div>
                         <div style={{fontSize:".7rem",color:ROLE_COLOR[p.role]}}>{ROLE_LABEL[p.role]}</div>
                       </div>
                     </div>
