@@ -545,116 +545,70 @@ function ProfileView({user,show,onAvatarUpdate}){
     await supabase.from("profiles").update({name:fullName,weight:form.weight?Number(form.weight):null,sex:form.sex,birth_date:form.birth_date||null,level:form.level}).eq("id",user.id);
     setSaving(false);show("Profil mis a jour ✓");
   };
- ```jsx
-return(
-  <div>
-    <div className="page-header">
-      <div className="page-title">Mon profil</div>
-      <div className="page-subtitle">Vos informations personnelles</div>
-    </div>
-
-    <div className="content">
-      <div className="profile-hero">
-        <AvatarUpload user={user} onUpload={url => onAvatarUpdate?.(url)}/>
-
-        <div>
-          <div className="field form-full">
-            <div style={{fontFamily:"var(--font-display)",fontSize:"1.7rem",fontWeight:900,textTransform:"uppercase",letterSpacing:".04em"}}>
-              {fullName || user.name}
-            </div>
-
+  return(
+    <div>
+      <div className="page-header"><div className="page-title">Mon profil</div><div className="page-subtitle">Vos informations personnelles</div></div>
+      <div className="content">
+        <div className="profile-hero">
+          <AvatarUpload user={user} onUpload={url=>onAvatarUpdate&&onAvatarUpdate(url)}/>
+          <div>
+            <div style={{fontFamily:"var(--font-display)",fontSize:"1.7rem",fontWeight:900,textTransform:"uppercase",letterSpacing:".04em"}}>{fullName||user.name}</div>
             <div className="flex gap-2 items-center mt-2" style={{flexWrap:"wrap"}}>
               <span className="badge badge-red">{ROLE_LABEL[user.role]}</span>
-              {form.level && <LevelBadge level={form.level}/>}
-              {age && <span className="badge badge-dark">{age} ans</span>}
-              {form.weight && <span className="badge badge-dark">{form.weight} kg</span>}
+              {form.level&&<LevelBadge level={form.level}/>}
+              {age&&<span className="badge badge-dark">{age} ans</span>}
+              {form.weight&&<span className="badge badge-dark">{form.weight} kg</span>}
             </div>
-
-            <div className="text-dim text-xs mt-2">
-              Cliquez sur la photo pour changer
-            </div>
+            <div className="text-dim text-xs mt-2">Cliquez sur la photo pour changer</div>
           </div>
         </div>
-      </div>
-
-      <div className="card">
-        <div className="form-grid">
-          <div className="field">
-            <label>Prénom *</label>
-            <input 
-              className={errs.first ? "err" : ""} 
-              value={form.first} 
-              onChange={e => {setForm({...form, first:e.target.value}); setErrs({});}} 
-              placeholder="Prénom"
-            />
-            <FieldErr errs={errs} field="first"/>
+        <div className="card">
+          <div className="form-grid">
+            <div className="field"><label>Prénom *</label><input className={errs.first?"err":""} value={form.first} onChange={e=>{setForm({...form,first:e.target.value});setErrs({});}} placeholder="Prénom"/><FieldErr errs={errs} field="first"/></div>
+            <div className="field"><label>Nom *</label><input className={errs.last?"err":""} value={form.last} onChange={e=>{setForm({...form,last:e.target.value});setErrs({});}} placeholder="Nom de famille"/><FieldErr errs={errs} field="last"/></div>
+            <div className="field"><label>Sexe</label><select value={form.sex} onChange={e=>setForm({...form,sex:e.target.value})}><option value="">Non renseigne</option><option value="H">Homme</option><option value="F">Femme</option></select></div>
+            <div className="field"><label>Date de naissance</label><input type="date" value={form.birth_date} onChange={e=>setForm({...form,birth_date:e.target.value})}/>{age&&<div className="text-xs text-dim" style={{marginTop:3}}>{age} ans</div>}</div>
+            <div className="field"><label>Poids (kg)</label><input type="number" value={form.weight} onChange={e=>setForm({...form,weight:e.target.value})} placeholder="72"/></div>
+            {user.role!=="coach"&&<div className="field"><label>Niveau</label><select value={form.level} onChange={e=>setForm({...form,level:e.target.value})}>{LEVELS.map(l=><option key={l}>{l}</option>)}</select></div>}
+            <div className="field form-full"><label>Email</label><input value={user.email} disabled/></div>
           </div>
-
-          <div className="field">
-            <label>Nom *</label>
-            <input 
-              className={errs.last ? "err" : ""} 
-              value={form.last} 
-              onChange={e => {setForm({...form, last:e.target.value}); setErrs({});}} 
-              placeholder="Nom de famille"
-            />
-            <FieldErr errs={errs} field="last"/>
-          </div>
-
-          <div className="field">
-            <label>Sexe</label>
-            <select value={form.sex} onChange={e => setForm({...form, sex:e.target.value})}>
-              <option value="">Non renseigne</option>
-              <option value="H">Homme</option>
-              <option value="F">Femme</option>
-            </select>
-          </div>
-
-          <div className="field">
-            <label>Date de naissance</label>
-            <input 
-              type="date" 
-              value={form.birth_date} 
-              onChange={e => setForm({...form, birth_date:e.target.value})}
-            />
-            {age && <div className="text-xs text-dim" style={{marginTop:3}}>{age} ans</div>}
-          </div>
-
-          <div className="field">
-            <label>Poids (kg)</label>
-            <input 
-              type="number" 
-              value={form.weight} 
-              onChange={e => setForm({...form, weight:e.target.value})} 
-              placeholder="72"
-            />
-          </div>
-
-          {user.role !== "coach" &&
-            <div className="field">
-              <label>Niveau</label>
-              <select value={form.level} onChange={e => setForm({...form, level:e.target.value})}>
-                {LEVELS.map(l => <option key={l}>{l}</option>)}
-              </select>
-            </div>
-          }
-
-          <div className="field form-full">
-            <label>Email</label>
-            <input value={user.email} disabled/>
-          </div>
-        </div>
-
-        <div className="mt-4">
-          <button className="btn btn-primary" onClick={save} disabled={saving}>
-            {saving ? "Sauvegarde..." : "Enregistrer"}
-          </button>
+          <div className="mt-4"><button className="btn btn-primary" onClick={save} disabled={saving}>{saving?"Sauvegarde...":"Enregistrer"}</button></div>
         </div>
       </div>
     </div>
-  </div>
-);
+  );
+}
 
+// ─── ADMIN ────────────────────────────────────────────────────────────────────
+function AdminDashboard(){
+  const [stats,setStats]=useState({members:0,coaches:0,competitors:0,leisure:0,children:0,sessions:0,requests:0});
+  useEffect(()=>{
+    (async()=>{
+      const[{data:p},{count:s},{count:r}]=await Promise.all([
+        supabase.from("profiles").select("role"),
+        supabase.from("sessions").select("*",{count:"exact",head:true}),
+        supabase.from("session_requests").select("*",{count:"exact",head:true}).eq("status","pending")
+      ]);
+      if(p)setStats({members:p.length,coaches:p.filter(x=>x.role==="coach").length,competitors:p.filter(x=>x.role==="competitor").length,leisure:p.filter(x=>x.role==="leisure").length,children:p.filter(x=>x.role==="child").length,sessions:s||0,requests:r||0});
+    })();
+  },[]);
+  return(
+    <div>
+      <div className="page-header"><div className="page-title">Tableau de bord</div><div className="page-subtitle">Vue d ensemble</div></div>
+      <div className="content">
+        <div className="stats-grid">
+          <div className="stat-card"><div className="stat-value">{stats.members}</div><div className="stat-label">Membres total</div></div>
+          <div className="stat-card"><div className="stat-value">{stats.coaches}</div><div className="stat-label">Coachs</div></div>
+          <div className="stat-card"><div className="stat-value">{stats.competitors}</div><div className="stat-label">Competiteurs</div></div>
+          <div className="stat-card"><div className="stat-value">{stats.leisure}</div><div className="stat-label">Loisirs</div></div>
+          <div className="stat-card"><div className="stat-value">{stats.children}</div><div className="stat-label">Enfants</div></div>
+          <div className="stat-card"><div className="stat-value">{stats.sessions}</div><div className="stat-label">Seances</div></div>
+          <div className="stat-card"><div className="stat-value" style={{color:stats.requests>0?"#ff6400":"var(--red)"}}>{stats.requests}</div><div className="stat-label">Demandes</div></div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function AdminUsers({show}){
   const [users,setUsers]=useState([]);
