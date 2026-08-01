@@ -620,7 +620,7 @@ function AdminUsers({show}){
   const [errs,setErrs]=useState({});
   const [search,setSearch]=useState("");
   const [filterRole,setFilterRole]=useState("Tous");
-  const ef={first:"",last:"",email:"",password:"",role:"leisure",sex:"",birth_date:"",weight:"",level:"Debutant"};
+  const ef={first:"",last:"",email:"@bombteampayet.fr",password:"",role:"leisure",sex:"",birth_date:"",weight:"",level:"Debutant"};
   const [form,setForm]=useState(ef);
   const [editForm,setEditForm]=useState({name:"",role:"leisure",sex:"",birth_date:"",weight:"",level:"Debutant"});
   const load=async()=>{setLoading(true);const{data}=await supabase.from("profiles").select("*").order("name");setUsers(data||[]);setLoading(false);};
@@ -697,7 +697,7 @@ function AdminUsers({show}){
         <div className="form-grid">
           <div className="field"><label>Prénom *</label><input className={errs.first?"err":""} value={form.first} onChange={e=>{setForm({...form,first:e.target.value});setErrs({...errs,first:""});}}/><FieldErr errs={errs} field="first"/></div>
           <div className="field"><label>Nom *</label><input className={errs.last?"err":""} value={form.last} onChange={e=>{setForm({...form,last:e.target.value});setErrs({...errs,last:""});}}/><FieldErr errs={errs} field="last"/></div>
-          <div className="field"><label>Email *</label><input className={errs.email?"err":""} value={form.email} onChange={e=>{setForm({...form,email:e.target.value});setErrs({...errs,email:""});}}/><FieldErr errs={errs} field="email"/></div>
+          <div className="field"><label>Email *</label><input className={errs.email?"err":""} value={form.email} onChange={e=>{setForm({...form,email:e.target.value});setErrs({...errs,email:""}); }} onFocus={e=>e.target.setSelectionRange(0,0)} placeholder="prenom.nom@bombteampayet.fr"/><FieldErr errs={errs} field="email"/></div>
           <div className="field"><label>Mot de passe *</label><input type="password" className={errs.password?"err":""} value={form.password} onChange={e=>{setForm({...form,password:e.target.value});setErrs({...errs,password:""});}}/><FieldErr errs={errs} field="password"/></div>
           <div className="field form-full"><label>Role</label><select value={form.role} onChange={e=>setForm({...form,role:e.target.value})}><option value="coach">Coach</option><option value="competitor">Competiteur</option><option value="leisure">Loisir</option><option value="child">Enfant</option></select></div>
           <div className="field"><label>Sexe</label><select value={form.sex} onChange={e=>setForm({...form,sex:e.target.value})}><option value="">Non renseigne</option><option value="H">Homme</option><option value="F">Femme</option></select></div>
@@ -1950,7 +1950,7 @@ function getReply(input){
   return "🤔 Je ne suis pas sûr de comprendre ta question. Tu peux me demander :\n• Le programme des cours\n• Comment marquer ta présence\n• Comment envoyer un message\n• Comment s'inscrire à une compétition\n\nOu contacte directement un coach via la Messagerie !";
 }
 
-function Chatbot({user}){
+function Chatbot({user,currentView}){
   const [open,setOpen]=useState(false);
   const [messages,setMessages]=useState([
     {from:"bot",text:`Bonjour ${(user.name||"").split(" ")[0]} ! 👋 Je suis l'assistant Bomb Team Payet.\nPose-moi une question sur le club ou l'application !`}
@@ -1959,6 +1959,9 @@ function Chatbot({user}){
   const bottomRef=useRef(null);
 
   useEffect(()=>{bottomRef.current?.scrollIntoView({behavior:"smooth"});},[messages]);
+
+  // Masquer sur la page messagerie pour ne pas gêner le bouton Envoyer
+  if(currentView==="messages") return null;
 
   const send=()=>{
     if(!input.trim())return;
@@ -2118,7 +2121,7 @@ export default function App(){
           {renderView()}
         </div>
       </div>
-      {(currentUser.role==="leisure"||currentUser.role==="child")&&<Chatbot user={currentUser}/>}
+      {(currentUser.role==="leisure"||currentUser.role==="child")&&<Chatbot user={currentUser} currentView={view}/>}
     </>
   );
 }
