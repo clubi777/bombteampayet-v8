@@ -1559,28 +1559,22 @@ function AskCoach({user,show}){
 function CompetitionsPage({user,show}){
   const [comps,setComps]=useState([]);
   const [entries,setEntries]=useState([]);
-  const [members,setMembers]=useState([]);
   const [loading,setLoading]=useState(true);
   const [modal,setModal]=useState(false);
-  const [addMemberModal,setAddMemberModal]=useState(null); // compId
   const [saving,setSaving]=useState(false);
   const [errs,setErrs]=useState({});
-  const [searchMember,setSearchMember]=useState("");
   const canManage=user.role==="admin"||user.role==="coach";
   const df={title:"",date:"",location:"",categories:"",description:""};
   const [form,setForm]=useState(df);
-
   const load=async()=>{
     setLoading(true);
-    const[{data:c},{data:e},{data:m}]=await Promise.all([
+    const[{data:c},{data:e}]=await Promise.all([
       supabase.from("competitions").select("*").order("date",{ascending:true}),
-      supabase.from("competition_entries").select("*"),
-      canManage?supabase.from("profiles").select("id,name,role").in("role",["competitor","leisure","child"]).order("name").limit(500):Promise.resolve({data:[]})
+      supabase.from("competition_entries").select("*")
     ]);
-    setComps(c||[]);setEntries(e||[]);setMembers(m||[]);setLoading(false);
+    setComps(c||[]);setEntries(e||[]);setLoading(false);
   };
   useEffect(()=>{load();},[]);
-
   const save=async()=>{
     const e=validate({title:"Titre",date:"Date",location:"Lieu"},form);
     if(Object.keys(e).length){setErrs(e);return;}
@@ -1588,24 +1582,11 @@ function CompetitionsPage({user,show}){
     await supabase.from("competitions").insert([{...form,created_by:user.id}]);
     show("Competition ajoutee ✓");setSaving(false);setModal(false);setForm(df);load();
   };
-
-  // Inscrire/désinscrire un membre (coach/admin)
-  const toggleMember=async(compId,memberId,memberName)=>{
-    const existing=entries.find(e=>e.competition_id===compId&&e.user_id===memberId);
-    if(existing){
-      await supabase.from("competition_entries").delete().eq("id",existing.id);
-      setEntries(entries.filter(e=>e.id!==existing.id));
-      show(`${memberName} désinscrit`);
-    } else {
-      const{data}=await supabase.from("competition_entries").insert([{competition_id:compId,user_id:memberId,user_name:memberName}]).select().single();
-      if(data){setEntries([...entries,data]);show(`${memberName} inscrit ✓`);}
-    }
+  const toggleEntry=async(compId)=>{
+    const existing=entries.find(e=>e.competition_id===compId&&e.user_id===user.id);
+    if(existing){await supabase.from("competition_entries").delete().eq("id",existing.id);setEntries(entries.filter(e=>e.id!==existing.id));show("Inscription annulee");}
+    else{const{data}=await supabase.from("competition_entries").insert([{competition_id:compId,user_id:user.id,user_name:user.name}]).select().single();if(data){setEntries([...entries,data]);show("Inscrit ✓");}}
   };
-
-  const filteredMembers=addMemberModal
-    ? members.filter(m=>!searchMember||m.name?.toLowerCase().includes(searchMember.toLowerCase()))
-    : [];
-
   return(
     <div>
       <div className="page-header"><div className="page-title">Competitions</div><div className="page-subtitle">Calendrier et inscriptions</div></div>
@@ -1615,6 +1596,7 @@ function CompetitionsPage({user,show}){
           :comps.length===0?<div className="empty"><div className="empty-icon">🏆</div><div className="empty-text">Aucune competition</div></div>
           :comps.map(c=>{
             const ce=entries.filter(e=>e.competition_id===c.id);
+            const isIn=entries.some(e=>e.competition_id===c.id&&e.user_id===user.id);
             const d=new Date(c.date);
             const isPast=d<new Date();
             return(
@@ -1630,22 +1612,14 @@ function CompetitionsPage({user,show}){
                     {c.description&&<div className="text-sm text-muted mt-2">{c.description}</div>}
                     <div className="flex gap-2 items-center mt-2" style={{flexWrap:"wrap"}}>
                       <span className="badge badge-dark">{ce.length} inscrit{ce.length!==1?"s":""}</span>
-                      {ce.map((e,i)=>(
-                        <span key={i} className="badge badge-blue" style={{cursor:canManage?"pointer":"default"}}
-                          onClick={()=>canManage&&toggleMember(c.id,e.user_id,e.user_name)}
-                          title={canManage?"Cliquer pour désinscrire":""}>
-                          {e.user_name}{canManage?" ×":""}
-                        </span>
-                      ))}
+                      {ce.slice(0,4).map((e,i)=><span key={i} className="badge badge-blue">{e.user_name}</span>)}
+                      {ce.length>4&&<span className="badge badge-dark">+{ce.length-4}</span>}
                     </div>
-                    {/* Bouton inscrire un membre — coach/admin */}
-                    {canManage&&!isPast&&(
-                      <button className="btn btn-sm btn-edit" style={{marginTop:8}} onClick={()=>{setAddMemberModal(c.id);setSearchMember("");}}>
-                        + Inscrire un membre
-                      </button>
-                    )}
                   </div>
                   <div className="flex gap-2" style={{flexShrink:0}}>
+                    {!isPast&&(user.role==="competitor"||user.role==="leisure")&&(
+                      <button className={`btn btn-sm ${isIn?"btn-danger":"btn-primary"}`} onClick={()=>toggleEntry(c.id)}>{isIn?"Se desinscrire":"S inscrire"}</button>
+                    )}
                     {canManage&&<button className="btn btn-sm btn-danger" onClick={async()=>{await supabase.from("competitions").delete().eq("id",c.id);load();}}>X</button>}
                   </div>
                 </div>
@@ -1653,8 +1627,6 @@ function CompetitionsPage({user,show}){
             );
           })}
       </div>
-
-      {/* Modal création compétition */}
       {modal&&<Modal title="Nouvelle competition" onClose={()=>setModal(false)}>
         <div className="form-grid">
           <div className="field form-full"><label>Titre *</label><input className={errs.title?"err":""} value={form.title} onChange={e=>{setForm({...form,title:e.target.value});setErrs({...errs,title:""});}}/><FieldErr errs={errs} field="title"/></div>
@@ -1665,42 +1637,6 @@ function CompetitionsPage({user,show}){
         </div>
         <div className="mt-4 flex gap-2"><button className="btn btn-primary" onClick={save} disabled={saving}>{saving?"...":"Ajouter"}</button><button className="btn btn-secondary" onClick={()=>setModal(false)}>Annuler</button></div>
       </Modal>}
-
-      {/* Modal inscription membre */}
-      {addMemberModal&&(
-        <Modal title="Inscrire un membre" onClose={()=>setAddMemberModal(null)}>
-          <input
-            className="search-input" style={{width:"100%",marginBottom:12}}
-            placeholder="Rechercher un membre..."
-            value={searchMember}
-            onChange={e=>setSearchMember(e.target.value)}
-            autoFocus
-          />
-          <div style={{maxHeight:320,overflowY:"auto"}}>
-            {filteredMembers.map(m=>{
-              const isIn=entries.some(e=>e.competition_id===addMemberModal&&e.user_id===m.id);
-              return(
-                <div key={m.id} className="flex justify-between items-center" style={{padding:"8px 4px",borderBottom:"1px solid var(--border)"}}>
-                  <div className="flex gap-2 items-center">
-                    <div className="avatar" style={{width:28,height:28,fontSize:".75rem",background:ROLE_COLOR[m.role]}}>{m.name[0]}</div>
-                    <div>
-                      <div style={{fontWeight:600,fontSize:".88rem"}}>{m.name}</div>
-                      <div style={{fontSize:".7rem",color:ROLE_COLOR[m.role]}}>{ROLE_LABEL[m.role]}</div>
-                    </div>
-                  </div>
-                  <button
-                    className={`btn btn-sm ${isIn?"btn-danger":"btn-primary"}`}
-                    onClick={()=>toggleMember(addMemberModal,m.id,m.name)}>
-                    {isIn?"Désinscrire":"Inscrire"}
-                  </button>
-                </div>
-              );
-            })}
-            {filteredMembers.length===0&&<div className="empty"><div className="empty-text">Aucun membre trouvé</div></div>}
-          </div>
-          <div className="mt-4"><button className="btn btn-secondary" onClick={()=>setAddMemberModal(null)}>Fermer</button></div>
-        </Modal>
-      )}
     </div>
   );
 }
@@ -1993,7 +1929,7 @@ const FAQ=[
   {keys:["programme","horaire","cours","heure","quand","créneau","creneau"],rep:"📅 Les cours ont lieu :\n• Mercredi 20h-22h\n• Vendredi 20h-22h\n• Samedi 10h30-12h30\n\nLe mardi est réservé aux compétiteurs."},
   {keys:["présence","presence","marquer","été","etais","j'étais","jadais"],rep:"✅ Pour indiquer ta présence :\n1. Clique sur \"Mes présences\"\n2. Sélectionne la séance dans la liste\n3. Clique sur ton nom pour te cocher ✓"},
   {keys:["message","messagerie","écrire","contacter","coach","parler"],rep:"💬 Pour envoyer un message à un coach :\n1. Clique sur \"Messagerie\"\n2. Clique sur \"Nouveau message\"\n3. Sélectionne le coach dans la liste\n4. Écris ton message et appuie sur Entrée"},
-  {keys:["compétition","competition","tournoi","s'inscrire","inscrire","inscription"],rep:"🏆 Pour les compétitions :\nConsulte le calendrier dans l'onglet \"Compétitions\" pour voir les prochaines dates, lieux et catégories.\n\nSi tu veux participer à une compétition, contacte ton coach directement via la Messagerie ou via \"Demander une séance\" — il s'occupera de ton inscription !"},
+  {keys:["compétition","competition","tournoi","s'inscrire","inscrire","inscription"],rep:"🏆 Pour les compétitions :\n1. Clique sur \"Compétitions\"\n2. Tu verras le calendrier avec les prochaines dates\n3. Clique sur \"S'inscrire\" pour te porter candidat"},
   {keys:["demande","séance spéciale","seance speciale","particulier","individuel"],rep:"📩 Pour demander une séance spécifique :\n1. Clique sur \"Demander une séance\"\n2. Choisis un coach\n3. Décris ce que tu veux travailler\n4. Le coach te répondra directement"},
   {keys:["profil","photo","modifier","nom","poids","âge","age","information"],rep:"👤 Pour modifier ton profil :\n1. Clique sur \"Mon profil\"\n2. Modifie tes informations\n3. Pour changer ta photo : clique sur l'avatar rond\n4. Appuie sur \"Enregistrer\""},
   {keys:["newsletter","pdf","document","télécharger","telecharger"],rep:"📄 La newsletter est disponible dans \"Club & Actu\" tout en bas. Clique sur \"Télécharger le PDF\" pour l'ouvrir ou la sauvegarder."},
