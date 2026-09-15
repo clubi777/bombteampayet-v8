@@ -418,7 +418,7 @@ function AnnounceBanner({announces}){
   );
 }
 
-function SessionCard({s,canEdit,onEdit}){
+function SessionCard({s,canEdit,onEdit,onDelete}){
   const coaches=[s.coach_name,...(s.extra_coaches||[])].filter(Boolean);
   const unique=[...new Set(coaches)];
   const types=Array.isArray(s.types)&&s.types.length>0 ? s.types : s.type ? [s.type] : [];
@@ -439,6 +439,7 @@ function SessionCard({s,canEdit,onEdit}){
           {types.map((t,i)=><span key={i} className="badge badge-red">{t}</span>)}
           {isMardi(s.date)&&<span className="badge badge-compet">Compet.</span>}
           {canEdit&&<button className="btn btn-sm btn-edit" onClick={()=>onEdit(s)}>Modifier</button>}
+          {onDelete&&<button className="btn btn-sm btn-danger" onClick={()=>onDelete(s)}>Supprimer</button>}
         </div>
       </div>
       {s.notes&&<div className="text-sm text-muted" style={{marginBottom:7}}>{s.notes}</div>}
@@ -742,7 +743,7 @@ function SessionForm({user,allCoaches,initial,onSave,onClose,saving}){
   const addEx=()=>{if(!exInput.trim())return;setForm({...form,exercises:[...form.exercises,exInput.trim()]});setExInput("");};
   const toggleCoach=name=>{const cur=form.extra_coaches||[];setForm({...form,extra_coaches:cur.includes(name)?cur.filter(x=>x!==name):[...cur,name]});};
   const handleSave=()=>{
-    const e=validate({focus:"Focus"},form);
+    const e=validate({},form);
     if(!form.types||form.types.length===0){e.types="Selectionnez au moins un type";}
     if(Object.keys(e).length){setErrs(e);return;}
     // Compatibilité : on envoie aussi type (string) pour l'affichage legacy
@@ -879,14 +880,14 @@ function AttendancePage({user,show}){
   const filteredSess=searchDate?sessions.filter(s=>s.date===searchDate):sessions;
   const displayedSess=searchDate||showAll?filteredSess:filteredSess.slice(0,6);
   const hasMore=!searchDate&&filteredSess.length>6;
-  // Filtrer les membres selon le type de séance sélectionnée
-  const sessionMembers=isStaff&&selected
-    ? isChildSession(selected)
-      ? members.filter(m=>m.role==="child")
-      : members.filter(m=>m.role!=="child")
-    : members.filter(m=>m.id===user.id);
-  const baseMembers=sessionMembers;
-  // Recherche par nom — utile dès que la liste dépasse une trentaine de membres
+
+  // Filtre les membres selon le type de séance ouverte
+  const getMembersForSession=(sess)=>{
+    if(!sess||!isStaff) return members.filter(m=>m.id===user.id);
+    if(isChildSession(sess)) return members.filter(m=>m.role==="child");
+    return members.filter(m=>m.role!=="child");
+  };
+  const baseMembers=getMembersForSession(selected);
   const displayMembers=isStaff&&searchMember.trim()
     ? baseMembers.filter(m=>m.name?.toLowerCase().includes(searchMember.toLowerCase()))
     : baseMembers;
@@ -1024,6 +1025,7 @@ function CoachSessions({user,show}){
 
   const saveNew=async form=>{setSaving(true);const{data,error}=await supabase.from("sessions").insert([{...form,coach_id:user.id,coach_name:user.name}]).select().single();if(error)show(error.message,"error");else{setSessions([data,...sessions]);show("Seance enregistree ✓");}setSaving(false);setModal(false);};
   const saveEdit=async form=>{setSaving(true);const{data}=await supabase.from("sessions").update({...form}).eq("id",editSess.id).select().single();if(data)setSessions(sessions.map(s=>s.id===editSess.id?data:s));show("Mise a jour ✓");setSaving(false);setEditSess(null);};
+  const deleteSession=async(s)=>{if(!window.confirm(`Supprimer la séance du ${formatDate(s.date)} ?`))return;await supabase.from("sessions").delete().eq("id",s.id);setSessions(prev=>prev.filter(x=>x.id!==s.id));show("Séance supprimée ✓");};
 
   // Filtre par type
   let filtered=sessions.filter(s=>filter==="Tous"||s.group_name===filter||(Array.isArray(s.types)?s.types.includes(filter):s.type===filter));
@@ -1053,7 +1055,7 @@ function CoachSessions({user,show}){
         </div>
         {loading?<div className="empty"><div className="empty-text">Chargement...</div></div>
           :displayed.length===0?<div className="empty"><div className="empty-icon">🥊</div><div className="empty-text">Aucune seance{searchDate?" pour cette date":""}</div></div>
-          :displayed.map(s=><SessionCard key={s.id} s={s} canEdit={true} onEdit={setEditSess}/>)}
+          :displayed.map(s=><SessionCard key={s.id} s={s} canEdit={true} onEdit={setEditSess} onDelete={deleteSession}/>)}
         {hasMore&&!showAll&&(
           <div style={{textAlign:"center",marginTop:8}}>
             <button className="btn btn-secondary" onClick={()=>setShowAll(true)}>Voir toutes les seances ({filtered.length - 6} de plus)</button>
@@ -2010,20 +2012,29 @@ function CompetitorAssignments({user,show}){
   return(<div><div className="page-header"><div className="page-title">Mes exercices</div><div className="page-subtitle">Assignes par le coach</div></div><div className="content">{loading?<div className="empty"><div className="empty-text">Chargement...</div></div>:assignments.length===0?<div className="empty"><div className="empty-icon">📌</div><div className="empty-text">Aucun exercice</div></div>:assignments.map(a=><div className="card" key={a.id} style={{borderLeft:`3px solid ${a.done?"#39d353":"var(--red)"}`}}><div className="card-header"><div><div className="card-title">{a.title}</div><div className="card-meta">{a.deadline?`Deadline : ${formatDate(a.deadline)}`:""}</div></div><span className={`badge ${a.done?"badge-green":"badge-red"}`}>{a.done?"Fait":"A faire"}</span></div><div className="text-sm text-muted" style={{marginBottom:10}}>{a.description}</div><label className="checkbox-row"><input type="checkbox" checked={a.done} onChange={()=>toggle(a)}/>Marquer comme realise</label></div>)}</div></div>);
 }
 
-function ClubSessions({userRole,show}){
+function ClubSessions({userRole,show,userId}){
   const [sessions,setSessions]=useState([]);
+  const [myAttendance,setMyAttendance]=useState([]);
   const [loading,setLoading]=useState(true);
   const [filter,setFilter]=useState("Tous");
+  const [showOnlyPresent,setShowOnlyPresent]=useState(false);
   const [confirm,setConfirm]=useState(null);
   const isAdmin=userRole==="admin";
+  const isChild=userRole==="child";
+  const isChildSess=s=>s.group_name==="Enfants"||(s.time_label&&(s.time_label.includes("18h30")||s.time_label.includes("16h00")||s.time_label.includes("16h")));
 
   const load=async()=>{
     setLoading(true);
-    let q=supabase.from("sessions").select("*").order("date",{ascending:false});
-    if(userRole==="leisure")q=q.neq("group_name","Competiteurs");
-    const{data}=await q;
-    const f=userRole==="leisure"?(data||[]).filter(s=>!isMardi(s.date)):(data||[]);
-    setSessions(f);setLoading(false);
+    const[{data:s},{data:a}]=await Promise.all([
+      supabase.from("sessions").select("*").order("date",{ascending:false}).limit(100),
+      userId?supabase.from("attendance").select("session_id").eq("user_id",userId):Promise.resolve({data:[]})
+    ]);
+    let f=(s||[]);
+    if(isChild) f=f.filter(s=>isChildSess(s));
+    else if(userRole==="leisure"||userRole==="competitor") f=f.filter(s=>!isChildSess(s)&&!isMardi(s.date));
+    setSessions(f);
+    setMyAttendance((a||[]).map(x=>x.session_id));
+    setLoading(false);
   };
   useEffect(()=>{load();},[userRole]);
 
@@ -2032,28 +2043,44 @@ function ClubSessions({userRole,show}){
     show&&show("Seance supprimee ✓");setConfirm(null);load();
   };
 
-  const filtered=sessions.filter(s=>filter==="Tous"||(Array.isArray(s.types)?s.types.includes(filter):s.type===filter));
+  const byType=sessions.filter(s=>filter==="Tous"||(Array.isArray(s.types)?s.types.includes(filter):s.type===filter));
+  const filtered=showOnlyPresent?byType.filter(s=>myAttendance.includes(s.id)):byType;
+
   return(
     <div>
-      <div className="page-header"><div className="page-title">Seances du club</div><div className="page-subtitle">{userRole==="leisure"?"Vos cours":"Historique complet"}</div></div>
+      <div className="page-header"><div className="page-title">Seances du club</div><div className="page-subtitle">{isChild||userRole==="leisure"?"Vos cours":"Historique complet"}</div></div>
       <div className="content">
-        <div className="filter-bar">{["Tous","Technique","Physique","Sparring","Mixte"].map(f=><button key={f} className={`filter-btn ${filter===f?"active":""}`} onClick={()=>setFilter(f)}>{f}</button>)}</div>
-        {loading?<div className="empty"><div className="empty-text">Chargement...</div></div>:filtered.map(s=>(
+        <div className="filter-bar" style={{flexWrap:"wrap",gap:6,marginBottom:10}}>
+          {["Tous","Technique","Physique","Sparring","Mixte"].map(f=>(
+            <button key={f} className={`filter-btn ${filter===f?"active":""}`} onClick={()=>setFilter(f)}>{f}</button>
+          ))}
+          {userId&&(
+            <button className={`filter-btn ${showOnlyPresent?"active":""}`} onClick={()=>setShowOnlyPresent(p=>!p)}>
+              ✅ Mes présences seulement
+            </button>
+          )}
+        </div>
+        {loading?<div className="empty"><div className="empty-text">Chargement...</div></div>
+          :filtered.length===0?<div className="empty"><div className="empty-icon">📋</div><div className="empty-text">{showOnlyPresent?"Aucune séance où vous étiez présent":"Aucune séance"}</div></div>
+          :filtered.map(s=>(
           <div key={s.id}>
             <SessionCard s={s} canEdit={false}/>
             {isAdmin&&<div style={{marginTop:-10,marginBottom:14,textAlign:"right"}}>
-              <button className="btn btn-sm btn-danger" onClick={()=>setConfirm(s)}>Supprimer cette seance</button>
+              <button className="btn btn-sm btn-danger" onClick={()=>setConfirm(s)}>Supprimer</button>
             </div>}
           </div>
         ))}
       </div>
-      {confirm&&<ConfirmModal title="Supprimer la seance" text={`Supprimer "${confirm.focus}" du ${formatDate(confirm.date)} ? Irreversible.`} onConfirm={deleteSession} onCancel={()=>setConfirm(null)}/>}
+      {confirm&&<ConfirmModal title="Supprimer la seance" text={`Supprimer "${confirm.focus||formatDate(confirm.date)}" ? Irreversible.`} onConfirm={deleteSession} onCancel={()=>setConfirm(null)}/>}
     </div>
   );
 }
 
 function WeeklyProgram({isCoach,userRole}){
-  const prog=userRole==="leisure"?WEEKLY_PROGRAM.filter(d=>d.jsDay!==2):WEEKLY_PROGRAM;
+  const isChild=userRole==="child";
+  let prog=WEEKLY_PROGRAM;
+  if(isChild) prog=WEEKLY_PROGRAM.filter(d=>d.group==="Enfants");
+  else if(userRole==="leisure"||userRole==="competitor") prog=WEEKLY_PROGRAM.filter(d=>d.jsDay!==2&&d.group!=="Enfants");
   return(<div><div className="page-header"><div className="page-title">Programme</div><div className="page-subtitle">{isCoach?"Planning des cours":"Programme de la semaine"}</div></div><div className="content">{isCoach&&<div className="notification">Le mardi est reserve aux competiteurs.</div>}{prog.map((d,i)=><div className="prog-day" key={i}><div className="prog-day-header"><div className="flex items-center gap-3"><div className="prog-day-name">{d.day}</div><span className="badge badge-red">{d.type}</span>{d.jsDay===2&&<span className="badge badge-compet">Compet.</span>}</div><div className="text-sm text-muted">{d.time}</div></div><div className="prog-day-body"><div className="font-bold">{d.theme}</div><div className="text-sm text-dim mt-2">Groupe : {d.group}</div></div></div>)}</div></div>);
 }
 
@@ -2213,7 +2240,7 @@ export default function App(){
     if(r==="competitor"){
       if(view==="dashboard")     return <CompetitorDashboard user={currentUser}/>;
       if(view==="my-sessions")   return <CompetitorMySessions user={currentUser} show={show}/>;
-      if(view==="club-sessions") return <ClubSessions userRole="competitor"/>;
+      if(view==="club-sessions") return <ClubSessions userRole="competitor" userId={currentUser.id}/>;
       if(view==="assignments")   return <CompetitorAssignments user={currentUser} show={show}/>;
       if(view==="attendance")    return <AttendancePage user={currentUser} show={show}/>;
       if(view==="competitions")  return <CompetitionsPage user={currentUser} show={show}/>;
@@ -2225,7 +2252,7 @@ export default function App(){
     if(r==="leisure"){
       if(view==="dashboard")     return <LeisureDashboard user={currentUser}/>;
       if(view==="program")       return <WeeklyProgram isCoach={false} userRole="leisure"/>;
-      if(view==="club-sessions") return <ClubSessions userRole="leisure"/>;
+      if(view==="club-sessions") return <ClubSessions userRole="leisure" userId={currentUser.id}/>;
       if(view==="attendance")    return <AttendancePage user={currentUser} show={show}/>;
       if(view==="competitions")  return <CompetitionsPage user={currentUser} show={show}/>;
       if(view==="ask-coach")     return <AskCoach user={currentUser} show={show}/>;
@@ -2235,8 +2262,8 @@ export default function App(){
     }
     if(r==="child"){
       if(view==="dashboard")     return <LeisureDashboard user={currentUser}/>;
-      if(view==="program")       return <WeeklyProgram isCoach={false} userRole="leisure"/>;
-      if(view==="club-sessions") return <ClubSessions userRole="leisure"/>;
+      if(view==="program")       return <WeeklyProgram isCoach={false} userRole="child"/>;
+      if(view==="club-sessions") return <ClubSessions userRole="child" userId={currentUser.id}/>;
       if(view==="attendance")    return <AttendancePage user={currentUser} show={show}/>;
       if(view==="competitions")  return <CompetitionsPage user={currentUser} show={show}/>;
       if(view==="club")          return <ClubPage user={currentUser} show={show}/>;
