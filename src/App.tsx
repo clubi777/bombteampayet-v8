@@ -834,23 +834,21 @@ function AttendancePage({user,show}){
   const isStaff=user.role==="coach"||user.role==="admin";
   const isChild=user.role==="child";
 
+  const isChildSession=sess=>sess.group_name==="Enfants"||(sess.time_label&&(sess.time_label.includes("18h30")||sess.time_label.includes("16h00")||sess.time_label.includes("16h")));
+
   useEffect(()=>{
     (async()=>{
       const[{data:s},{data:m}]=await Promise.all([
         supabase.from("sessions").select("*").order("date",{ascending:false}).limit(50),
         supabase.from("profiles").select("id,name,role,avatar_url").in("role",["competitor","leisure","child"]).order("name").limit(500)
       ]);
-      // Filtrer les séances selon le rôle
       let filtered=(s||[]);
       if(isChild){
-        // Enfants voient uniquement les créneaux "Enfants"
-        filtered=filtered.filter(sess=>sess.group_name==="Enfants");
+        filtered=filtered.filter(sess=>isChildSession(sess));
       } else if(!isStaff){
-        // Loisirs/compétiteurs ne voient pas les créneaux enfants
-        filtered=filtered.filter(sess=>sess.group_name!=="Enfants");
+        filtered=filtered.filter(sess=>!isChildSession(sess));
       }
       setSessions(filtered);
-      // Membres filtrés selon la séance sélectionnée (dynamique)
       setMembers(m||[]);setLoading(false);
     })();
   },[]);
@@ -883,7 +881,7 @@ function AttendancePage({user,show}){
   const hasMore=!searchDate&&filteredSess.length>6;
   // Filtrer les membres selon le type de séance sélectionnée
   const sessionMembers=isStaff&&selected
-    ? selected.group_name==="Enfants"
+    ? isChildSession(selected)
       ? members.filter(m=>m.role==="child")
       : members.filter(m=>m.role!=="child")
     : members.filter(m=>m.id===user.id);
