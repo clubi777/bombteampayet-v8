@@ -13,15 +13,19 @@ const LOGO_SRC = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1B
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 const WEEKLY_PROGRAM = [
   { day:"Mardi",    time:"20h00-22h00", type:"Competiteurs", theme:"Entrainement competition", group:"Competiteurs", jsDay:2 },
+  { day:"Mercredi", time:"18h30-19h30", type:"Enfants",      theme:"Cours enfants",            group:"Enfants",      jsDay:3 },
   { day:"Mercredi", time:"20h00-22h00", type:"Mixte",        theme:"Technique & Sparring",     group:"Mixte",        jsDay:3 },
   { day:"Vendredi", time:"20h00-22h00", type:"Physique",     theme:"Circuit training + Sacs",  group:"Mixte",        jsDay:5 },
   { day:"Samedi",   time:"10h30-12h30", type:"Technique",    theme:"Travail technique",         group:"Mixte",        jsDay:6 },
+  { day:"Samedi",   time:"16h00-17h30", type:"Enfants",      theme:"Cours enfants",            group:"Enfants",      jsDay:6 },
 ];
 const SLOTS = [
-  { label:"Mardi",    jsDay:2, timeLabel:"20h00-22h00", group:"Competiteurs", duration:120, competOnly:true  },
-  { label:"Mercredi", jsDay:3, timeLabel:"20h00-22h00", group:"Mixte",        duration:120, competOnly:false },
-  { label:"Vendredi", jsDay:5, timeLabel:"20h00-22h00", group:"Mixte",        duration:120, competOnly:false },
-  { label:"Samedi",   jsDay:6, timeLabel:"10h30-12h30", group:"Mixte",        duration:120, competOnly:false },
+  { label:"Mardi",          jsDay:2, timeLabel:"20h00-22h00", group:"Competiteurs", duration:120, competOnly:true,  childOnly:false },
+  { label:"Mercredi Enfants",jsDay:3,timeLabel:"18h30-19h30", group:"Enfants",      duration:60,  competOnly:false, childOnly:true  },
+  { label:"Mercredi",       jsDay:3, timeLabel:"20h00-22h00", group:"Mixte",        duration:120, competOnly:false, childOnly:false },
+  { label:"Vendredi",       jsDay:5, timeLabel:"20h00-22h00", group:"Mixte",        duration:120, competOnly:false, childOnly:false },
+  { label:"Samedi",         jsDay:6, timeLabel:"10h30-12h30", group:"Mixte",        duration:120, competOnly:false, childOnly:false },
+  { label:"Samedi Enfants", jsDay:6, timeLabel:"16h00-17h30", group:"Enfants",      duration:90,  competOnly:false, childOnly:true  },
 ];
 const SESSION_TYPES = ["Technique","Physique","Sparring","Mixte","Recuperation"];
 const toggleType = (types, t) => types.includes(t) ? types.filter(x=>x!==t) : [...types, t];
@@ -191,7 +195,7 @@ const css = `
   .slot-day{font-family:var(--font-display);font-size:1rem;font-weight:700;text-transform:uppercase;color:var(--text);letter-spacing:.04em;}
   .slot-time{font-size:.7rem;color:var(--text2);margin-top:2px;}
   .slot-group-label{font-size:.66rem;margin-top:3px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;}
-  .slot-compet{color:var(--red);} .slot-mixed{color:#a08080;}
+  .slot-compet{color:var(--red);} .slot-child{color:#ffb84d;} .slot-mixed{color:#a08080;}
   .manual-divider{display:flex;align-items:center;gap:10px;margin:14px 0 10px;}
   .manual-divider::before,.manual-divider::after{content:"";flex:1;border-top:1px solid var(--border);}
   .manual-divider span{font-size:.66rem;color:var(--text3);text-transform:uppercase;letter-spacing:.1em;white-space:nowrap;}
@@ -748,7 +752,7 @@ function SessionForm({user,allCoaches,initial,onSave,onClose,saving}){
   return(
     <>
       {!initial&&(<><div className="section-title">Creneau habituel</div>
-        <div className="slot-grid">{SLOTS.map(s=><div key={s.label} className={`slot-btn ${selectedSlot===s.label?"selected":""}`} onClick={()=>pickSlot(s)}><div className="slot-day">{s.label}</div><div className="slot-time">{s.timeLabel}</div><div className={`slot-group-label ${s.competOnly?"slot-compet":"slot-mixed"}`}>{s.competOnly?"Competiteurs":"Mixte"}</div></div>)}</div>
+        <div className="slot-grid">{SLOTS.map(s=><div key={s.label} className={`slot-btn ${selectedSlot===s.label?"selected":""}`} onClick={()=>pickSlot(s)}><div className="slot-day">{s.label}</div><div className="slot-time">{s.timeLabel}</div><div className={`slot-group-label ${s.competOnly?"slot-compet":s.childOnly?"slot-child":"slot-mixed"}`}>{s.competOnly?"Competiteurs":s.childOnly?"Enfants":"Mixte"}</div></div>)}</div>
         <div className="manual-divider"><span>ou saisir manuellement</span></div></>)}
       <div className="form-grid">
         <div className="field"><label>Date *</label><input type="date" value={form.date} onChange={e=>setForm({...form,date:e.target.value})}/></div>
@@ -781,6 +785,46 @@ function SessionForm({user,allCoaches,initial,onSave,onClose,saving}){
 }
 
 // ─── ATTENDANCE ───────────────────────────────────────────────────────────────
+// Export feuille de présence en PDF via impression navigateur
+function exportPDF(session,attendance,members){
+  const present=attendance.map(a=>a.user_id);
+  const date=formatDate(session.date);
+  const day=getDayName(session.date);
+  const rows=members.map(m=>`
+    <tr>
+      <td>${m.name}</td>
+      <td style="text-align:center;font-size:1.2rem">${present.includes(m.id)?"✓":""}</td>
+      <td style="text-align:center;font-size:1.2rem">${!present.includes(m.id)?"✗":""}</td>
+    </tr>`).join("");
+  const html=`<!DOCTYPE html><html><head><meta charset="UTF-8"/>
+    <title>Presence — ${date}</title>
+    <style>
+      body{font-family:Arial,sans-serif;margin:20mm;color:#000;}
+      h1{font-size:1.4rem;margin-bottom:4px;}
+      .meta{color:#666;font-size:.9rem;margin-bottom:20px;}
+      table{width:100%;border-collapse:collapse;font-size:.95rem;}
+      th{background:#cc0000;color:#fff;padding:8px 10px;text-align:left;}
+      td{padding:7px 10px;border-bottom:1px solid #ddd;}
+      tr:nth-child(even)td{background:#f9f9f9;}
+      .footer{margin-top:20px;font-size:.8rem;color:#999;}
+    </style></head><body>
+    <h1>🥊 Bomb Team Payet — Feuille de Présence</h1>
+    <div class="meta">
+      <strong>${day} ${date}${session.time_label?" — "+session.time_label:""}</strong><br/>
+      ${session.focus||""} — ${session.group_name||""}<br/>
+      Présents : ${present.length} / ${members.length}
+    </div>
+    <table>
+      <thead><tr><th>Nom</th><th style="text-align:center">Présent</th><th style="text-align:center">Absent</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div class="footer">Généré le ${new Date().toLocaleDateString("fr-FR")} • Bomb Team Payet</div>
+    <script>window.onload=()=>{window.print();}</script>
+    </body></html>`;
+  const w=window.open("","_blank");
+  w.document.write(html);w.document.close();
+}
+
 function AttendancePage({user,show}){
   const [sessions,setSessions]=useState([]);
   const [members,setMembers]=useState([]);
@@ -788,14 +832,26 @@ function AttendancePage({user,show}){
   const [attendance,setAttendance]=useState([]);
   const [loading,setLoading]=useState(true);
   const isStaff=user.role==="coach"||user.role==="admin";
+  const isChild=user.role==="child";
 
   useEffect(()=>{
     (async()=>{
       const[{data:s},{data:m}]=await Promise.all([
-        supabase.from("sessions").select("*").order("date",{ascending:false}).limit(30),
-        supabase.from("profiles").select("id,name,role,avatar_url").in("role",["competitor","leisure","child"]).order("name")
+        supabase.from("sessions").select("*").order("date",{ascending:false}).limit(50),
+        supabase.from("profiles").select("id,name,role,avatar_url").in("role",["competitor","leisure","child"]).order("name").limit(500)
       ]);
-      setSessions(s||[]);setMembers(m||[]);setLoading(false);
+      // Filtrer les séances selon le rôle
+      let filtered=(s||[]);
+      if(isChild){
+        // Enfants voient uniquement les créneaux "Enfants"
+        filtered=filtered.filter(sess=>sess.group_name==="Enfants");
+      } else if(!isStaff){
+        // Loisirs/compétiteurs ne voient pas les créneaux enfants
+        filtered=filtered.filter(sess=>sess.group_name!=="Enfants");
+      }
+      setSessions(filtered);
+      // Membres filtrés selon la séance sélectionnée (dynamique)
+      setMembers(m||[]);setLoading(false);
     })();
   },[]);
 
@@ -825,7 +881,13 @@ function AttendancePage({user,show}){
   const filteredSess=searchDate?sessions.filter(s=>s.date===searchDate):sessions;
   const displayedSess=searchDate||showAll?filteredSess:filteredSess.slice(0,6);
   const hasMore=!searchDate&&filteredSess.length>6;
-  const baseMembers=isStaff?members:members.filter(m=>m.id===user.id);
+  // Filtrer les membres selon le type de séance sélectionnée
+  const sessionMembers=isStaff&&selected
+    ? selected.group_name==="Enfants"
+      ? members.filter(m=>m.role==="child")
+      : members.filter(m=>m.role!=="child")
+    : members.filter(m=>m.id===user.id);
+  const baseMembers=sessionMembers;
   // Recherche par nom — utile dès que la liste dépasse une trentaine de membres
   const displayMembers=isStaff&&searchMember.trim()
     ? baseMembers.filter(m=>m.name?.toLowerCase().includes(searchMember.toLowerCase()))
@@ -840,7 +902,12 @@ function AttendancePage({user,show}){
       <div className="content">
         {loading?<div className="empty"><div className="empty-text">Chargement...</div></div>:(
           <>
-            <div className="section-title">Choisir une seance</div>
+            <div className="flex justify-between items-center" style={{marginBottom:10}}>
+              <div className="section-title" style={{marginBottom:0}}>Choisir une seance</div>
+              {isStaff&&selected&&(
+                <button className="btn btn-sm btn-secondary" onClick={()=>exportPDF(selected,attendance,baseMembers)}>📄 Exporter PDF</button>
+              )}
+            </div>
             <div className="flex gap-2 items-center" style={{marginBottom:10}}>
               <input type="date" value={searchDate} onChange={e=>{setSearchDate(e.target.value);setShowAll(false);}} style={{background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:"var(--radius)",padding:"6px 10px",color:"var(--text)",fontSize:".82rem",outline:"none",flex:1}}/>
               {searchDate&&<button className="btn btn-sm btn-secondary" onClick={()=>setSearchDate("")}>×</button>}
@@ -1255,7 +1322,7 @@ function MessagesPage({user,show,onUnreadChange}){
 
   useEffect(()=>{load();},[]);
   useEffect(()=>{messagesEndRef.current?.scrollIntoView({behavior:"smooth"});},[messages]);
-  useEffect(()=>{const i=setInterval(()=>load(),15000);return()=>clearInterval(i);},[archived]);
+  useEffect(()=>{const i=setInterval(()=>load(),60000);return()=>clearInterval(i);},[archived]);
 
   const send=async()=>{
     if(!newMsg.trim()||!selected)return;
@@ -1560,9 +1627,10 @@ function CompetitionsPage({user,show}){
   const [comps,setComps]=useState([]);
   const [entries,setEntries]=useState([]);
   const [members,setMembers]=useState([]);
+  const [membersLoaded,setMembersLoaded]=useState(false);
   const [loading,setLoading]=useState(true);
   const [modal,setModal]=useState(false);
-  const [addMemberModal,setAddMemberModal]=useState(null); // compId
+  const [addMemberModal,setAddMemberModal]=useState(null);
   const [saving,setSaving]=useState(false);
   const [errs,setErrs]=useState({});
   const [searchMember,setSearchMember]=useState("");
@@ -1572,14 +1640,22 @@ function CompetitionsPage({user,show}){
 
   const load=async()=>{
     setLoading(true);
-    const[{data:c},{data:e},{data:m}]=await Promise.all([
+    const[{data:c},{data:e}]=await Promise.all([
       supabase.from("competitions").select("*").order("date",{ascending:true}),
       supabase.from("competition_entries").select("*"),
-      canManage?supabase.from("profiles").select("id,name,role").in("role",["competitor","leisure","child"]).order("name").limit(500):Promise.resolve({data:[]})
     ]);
-    setComps(c||[]);setEntries(e||[]);setMembers(m||[]);setLoading(false);
+    setComps(c||[]);setEntries(e||[]);setLoading(false);
   };
   useEffect(()=>{load();},[]);
+
+  // Membres chargés uniquement quand on ouvre la modale d'inscription
+  const openAddMember=async(compId)=>{
+    setAddMemberModal(compId);setSearchMember("");
+    if(!membersLoaded){
+      const{data:m}=await supabase.from("profiles").select("id,name,role").in("role",["competitor","leisure","child"]).order("name").limit(500);
+      setMembers(m||[]);setMembersLoaded(true);
+    }
+  };
 
   const save=async()=>{
     const e=validate({title:"Titre",date:"Date",location:"Lieu"},form);
@@ -1990,7 +2066,7 @@ function LeisureDashboard({user}){
 
 // ─── CHATBOT (réponses locales — fonctionne sans API) ─────────────────────────
 const FAQ=[
-  {keys:["programme","horaire","cours","heure","quand","créneau","creneau"],rep:"📅 Les cours ont lieu :\n• Mercredi 20h-22h\n• Vendredi 20h-22h\n• Samedi 10h30-12h30\n\nLe mardi est réservé aux compétiteurs."},
+  {keys:["programme","horaire","cours","heure","quand","créneau","creneau"],rep:"📅 Les cours ont lieu :\n• Mercredi 18h30-19h30 (Enfants)\n• Mercredi 20h-22h (Adultes mixte)\n• Vendredi 20h-22h (Adultes mixte)\n• Samedi 10h30-12h30 (Adultes mixte)\n• Samedi 16h-17h30 (Enfants)\n\nLe mardi est réservé aux compétiteurs."},
   {keys:["présence","presence","marquer","été","etais","j'étais","jadais"],rep:"✅ Pour indiquer ta présence :\n1. Clique sur \"Mes présences\"\n2. Sélectionne la séance dans la liste\n3. Clique sur ton nom pour te cocher ✓"},
   {keys:["message","messagerie","écrire","contacter","coach","parler"],rep:"💬 Pour envoyer un message à un coach :\n1. Clique sur \"Messagerie\"\n2. Clique sur \"Nouveau message\"\n3. Sélectionne le coach dans la liste\n4. Écris ton message et appuie sur Entrée"},
   {keys:["compétition","competition","tournoi","s'inscrire","inscrire","inscription"],rep:"🏆 Pour les compétitions :\nConsulte le calendrier dans l'onglet \"Compétitions\" pour voir les prochaines dates, lieux et catégories.\n\nSi tu veux participer à une compétition, contacte ton coach directement via la Messagerie ou via \"Demander une séance\" — il s'occupera de ton inscription !"},
@@ -2115,7 +2191,7 @@ export default function App(){
     if(r==="admin"){
       if(view==="dashboard")   return <AdminDashboard/>;
       if(view==="users")       return <AdminUsers show={show}/>;
-      if(view==="sessions")    return <ClubSessions userRole="admin" show={show}/>;
+      if(view==="sessions")    return <CoachSessions user={currentUser} show={show}/>;
       if(view==="attendance")  return <AttendancePage user={currentUser} show={show}/>;
       if(view==="competitions")return <CompetitionsPage user={currentUser} show={show}/>;
       if(view==="requests")    return <RequestsPage user={currentUser} show={show}/>;
