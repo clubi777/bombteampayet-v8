@@ -2019,14 +2019,19 @@ function ClubSessions({userRole,show,userId}){
   const [filter,setFilter]=useState("Tous");
   const [showOnlyPresent,setShowOnlyPresent]=useState(false);
   const [confirm,setConfirm]=useState(null);
+  const [exportModal,setExportModal]=useState(false);
+  const [dateFrom,setDateFrom]=useState("");
+  const [dateTo,setDateTo]=useState("");
   const isAdmin=userRole==="admin";
   const isChild=userRole==="child";
   const isChildSess=s=>s.group_name==="Enfants"||(s.time_label&&(s.time_label.includes("18h30")||s.time_label.includes("16h00")||s.time_label.includes("16h")));
+  const today=new Date().toISOString().split("T")[0];
 
   const load=async()=>{
     setLoading(true);
     const[{data:s},{data:a}]=await Promise.all([
-      supabase.from("sessions").select("*").order("date",{ascending:false}).limit(100),
+      // Historique = séances passées uniquement
+      supabase.from("sessions").select("*").lt("date",today).order("date",{ascending:false}).limit(100),
       userId?supabase.from("attendance").select("session_id").eq("user_id",userId):Promise.resolve({data:[]})
     ]);
     let f=(s||[]);
@@ -2046,42 +2051,170 @@ function ClubSessions({userRole,show,userId}){
   const byType=sessions.filter(s=>filter==="Tous"||(Array.isArray(s.types)?s.types.includes(filter):s.type===filter));
   const filtered=showOnlyPresent?byType.filter(s=>myAttendance.includes(s.id)):byType;
 
+  const handleExportPDF=async()=>{
+    // Récupérer les présences pour toutes les séances de la plage
+    let sessInRange=sessions;
+    if(dateFrom) sessInRange=sessInRange.filter(s=>s.date>=dateFrom);
+    if(dateTo)   sessInRange=sessInRange.filter(s=>s.date<=dateTo);
+    if(sessInRange.length===0){show&&show("Aucune séance dans cette plage","error");return;}
+
+    const ids=sessInRange.map(s=>s.id);
+    const{data:att}=await supabase.from("attendance").select("*").in("session_id",ids);
+    const{data:profiles}=await supabase.from("profiles").select("id,name").in("role",["competitor","leisure","child"]).order("name").limit(500);
+
+    const rows=sessInRange.map(s=>{
+      const present=(att||[]).filter(a=>a.session_id===s.id);
+      const types=Array.isArray(s.types)&&s.types.length>0?s.types:s.type?[s.type]:[];
+      return`<tr>
+        <td>${getDayName(s.date)} ${formatDate(s.date)}${s.time_label?" — "+s.time_label:""}</td>
+        <td>${types.join(", ")||"—"}</td>
+        <td>${s.focus||"—"}</td>
+        <td style="text-align:center"><strong>${present.length}</strong></td>
+        <td style="font-size:.8rem;color:#666">${present.map(a=>a.user_name||"?").join(", ")||"—"}</td>
+      </tr>`;
+    }).join("");
+
+    const html=`<!DOCTYPE html><html><head><meta charset="UTF-8"/>
+      <title>Presences ${dateFrom||""}${dateTo?" → "+dateTo:""}</title>
+      <style>
+        body{font-family:Arial,sans-serif;margin:15mm;font-size:10pt;}
+        h1{font-size:14pt;color:#cc0000;margin-bottom:4px;}
+        .meta{color:#666;font-size:9pt;margin-bottom:16px;}
+        table{width:100%;border-collapse:collapse;font-size:9pt;}
+        th{background:#cc0000;color:#fff;padding:6px 8px;text-align:left;}
+        td{padding:5px 8px;border-bottom:1px solid #eee;vertical-align:top;}
+        tr:nth-child(even) td{background:#fafafa;}
+        .footer{margin-top:16px;font-size:8pt;color:#999;}
+      </style></head><body>
+      <h1>🥊 Bomb Team Payet — Registre des Présences</h1>
+      <div class="meta">Période : ${dateFrom?formatDate(dateFrom):"début"} → ${dateTo?formatDate(dateTo):"aujourd'hui"} — ${sessInRange.length} séance(s)</div>
+      <table>
+        <thead><tr><th>Séance</th><th>Type</th><th>Focus</th><th>Nb présents</th><th>Noms</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <div class="footer">Généré le ${new Date().toLocaleDateString("fr-FR")} • Bomb Team Payet</div>
+      <script>window.onload=()=>window.print();</script>
+      </body></html>`;
+    const w=window.open("","_blank");
+    w.document.write(html);w.document.close();
+    setExportModal(false);
+  };
+
   return(
     <div>
-      <div className="page-header"><div className="page-title">Seances du club</div><div className="page-subtitle">{isChild||userRole==="leisure"?"Vos cours":"Historique complet"}</div></div>
+      <div className="page-header">
+        <div className="page-title">Historique cours</div>
+        <div className="page-subtitle">Séances passées</div>
+      </div>
       <div className="content">
-        <div className="filter-bar" style={{flexWrap:"wrap",gap:6,marginBottom:10}}>
+        {/* Filtres type + présences */}
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10,alignItems:"center"}}>
           {["Tous","Technique","Physique","Sparring","Mixte"].map(f=>(
             <button key={f} className={`filter-btn ${filter===f?"active":""}`} onClick={()=>setFilter(f)}>{f}</button>
           ))}
           {userId&&(
-            <button className={`filter-btn ${showOnlyPresent?"active":""}`} onClick={()=>setShowOnlyPresent(p=>!p)}>
+            <button
+              onClick={()=>setShowOnlyPresent(p=>!p)}
+              style={{padding:"4px 12px",borderRadius:20,border:"2px solid",fontSize:".75rem",fontWeight:700,cursor:"pointer",
+                background:showOnlyPresent?"#39d353":"transparent",
+                borderColor:showOnlyPresent?"#39d353":"var(--border)",
+                color:showOnlyPresent?"#fff":"var(--text2)",
+                transition:"all .2s"}}>
               ✅ Mes présences seulement
             </button>
           )}
+          {(isAdmin||userRole==="coach")&&(
+            <button className="btn btn-sm btn-secondary" style={{marginLeft:"auto"}} onClick={()=>setExportModal(true)}>📄 Exporter PDF</button>
+          )}
         </div>
-        {loading?<div className="empty"><div className="empty-text">Chargement...</div></div>
-          :filtered.length===0?<div className="empty"><div className="empty-icon">📋</div><div className="empty-text">{showOnlyPresent?"Aucune séance où vous étiez présent":"Aucune séance"}</div></div>
-          :filtered.map(s=>(
-          <div key={s.id}>
-            <SessionCard s={s} canEdit={false}/>
-            {isAdmin&&<div style={{marginTop:-10,marginBottom:14,textAlign:"right"}}>
-              <button className="btn btn-sm btn-danger" onClick={()=>setConfirm(s)}>Supprimer</button>
-            </div>}
-          </div>
-        ))}
+
+        {loading
+          ?<div className="empty"><div className="empty-text">Chargement...</div></div>
+          :filtered.length===0
+            ?<div className="empty"><div className="empty-icon">📋</div><div className="empty-text">{showOnlyPresent?"Aucune séance où vous étiez présent":"Aucune séance passée"}</div></div>
+            :filtered.map(s=>(
+              <div key={s.id}>
+                <SessionCard s={s} canEdit={false}/>
+                {isAdmin&&<div style={{marginTop:-10,marginBottom:14,textAlign:"right"}}>
+                  <button className="btn btn-sm btn-danger" onClick={()=>setConfirm(s)}>Supprimer</button>
+                </div>}
+              </div>
+            ))}
       </div>
+
+      {/* Modal export PDF avec plage de dates */}
+      {exportModal&&<Modal title="Exporter les présences en PDF" onClose={()=>setExportModal(false)}>
+        <div style={{marginBottom:16,color:"var(--text2)",fontSize:".88rem"}}>Choisissez une plage de dates (optionnel — laisser vide pour tout exporter).</div>
+        <div className="form-grid">
+          <div className="field"><label>Date de début</label><input type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)}/></div>
+          <div className="field"><label>Date de fin</label><input type="date" value={dateTo} onChange={e=>setDateTo(e.target.value)}/></div>
+        </div>
+        <div className="mt-4 flex gap-2">
+          <button className="btn btn-primary" onClick={handleExportPDF}>📄 Générer le PDF</button>
+          <button className="btn btn-secondary" onClick={()=>setExportModal(false)}>Annuler</button>
+        </div>
+      </Modal>}
+
       {confirm&&<ConfirmModal title="Supprimer la seance" text={`Supprimer "${confirm.focus||formatDate(confirm.date)}" ? Irreversible.`} onConfirm={deleteSession} onCancel={()=>setConfirm(null)}/>}
     </div>
   );
 }
 
 function WeeklyProgram({isCoach,userRole}){
+  const [sessions,setSessions]=useState([]);
+  const [loading,setLoading]=useState(true);
   const isChild=userRole==="child";
-  let prog=WEEKLY_PROGRAM;
-  if(isChild) prog=WEEKLY_PROGRAM.filter(d=>d.group==="Enfants");
-  else if(userRole==="leisure"||userRole==="competitor") prog=WEEKLY_PROGRAM.filter(d=>d.jsDay!==2&&d.group!=="Enfants");
-  return(<div><div className="page-header"><div className="page-title">Programme</div><div className="page-subtitle">{isCoach?"Planning des cours":"Programme de la semaine"}</div></div><div className="content">{isCoach&&<div className="notification">Le mardi est reserve aux competiteurs.</div>}{prog.map((d,i)=><div className="prog-day" key={i}><div className="prog-day-header"><div className="flex items-center gap-3"><div className="prog-day-name">{d.day}</div><span className="badge badge-red">{d.type}</span>{d.jsDay===2&&<span className="badge badge-compet">Compet.</span>}</div><div className="text-sm text-muted">{d.time}</div></div><div className="prog-day-body"><div className="font-bold">{d.theme}</div><div className="text-sm text-dim mt-2">Groupe : {d.group}</div></div></div>)}</div></div>);
+  const isChildSess=s=>s.group_name==="Enfants"||(s.time_label&&(s.time_label.includes("18h30")||s.time_label.includes("16h00")||s.time_label.includes("16h")));
+
+  useEffect(()=>{
+    (async()=>{
+      const today=new Date().toISOString().split("T")[0];
+      const{data}=await supabase.from("sessions").select("*").gte("date",today).order("date",{ascending:true}).limit(20);
+      let f=(data||[]);
+      if(isChild) f=f.filter(s=>isChildSess(s));
+      else if(userRole==="leisure"||userRole==="competitor") f=f.filter(s=>!isChildSess(s)&&!isMardi(s.date));
+      setSessions(f);setLoading(false);
+    })();
+  },[]);
+
+  return(
+    <div>
+      <div className="page-header">
+        <div className="page-title">Programme</div>
+        <div className="page-subtitle">Prochains cours</div>
+      </div>
+      <div className="content">
+        {loading?<div className="empty"><div className="empty-text">Chargement...</div></div>
+          :sessions.length===0
+            ?<div className="empty"><div className="empty-icon">📅</div><div className="empty-text">Aucun cours à venir enregistré pour le moment</div></div>
+            :sessions.map(s=>{
+              const types=Array.isArray(s.types)&&s.types.length>0?s.types:s.type?[s.type]:[];
+              const coaches=[s.coach_name,...(s.extra_coaches||[])].filter(Boolean);
+              const unique=[...new Set(coaches)];
+              return(
+                <div key={s.id} className="card" style={{marginBottom:10}}>
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <div style={{fontFamily:"var(--font-display)",fontSize:"1rem",fontWeight:900,letterSpacing:".04em"}}>
+                        {getDayName(s.date)} {formatDate(s.date)}{s.time_label?` — ${s.time_label}`:""}
+                      </div>
+                      {s.focus&&<div className="card-title" style={{marginTop:4}}>{s.focus}</div>}
+                      <div className="card-meta">{s.duration} min{s.group_name?` — ${s.group_name}`:""}</div>
+                      {unique.length>0&&<div className="flex gap-2 items-center" style={{marginTop:6,flexWrap:"wrap"}}>
+                        {unique.map((c,i)=><span key={i} className="coach-tag">🥋 {c}</span>)}
+                      </div>}
+                    </div>
+                    <div className="flex gap-2 items-center" style={{flexWrap:"wrap",flexShrink:0}}>
+                      {types.map((t,i)=><span key={i} className="badge badge-red">{t}</span>)}
+                    </div>
+                  </div>
+                  {s.notes&&<div className="text-sm text-muted mt-2">{s.notes}</div>}
+                </div>
+              );
+            })}
+      </div>
+    </div>
+  );
 }
 
 function LeisureDashboard({user}){
